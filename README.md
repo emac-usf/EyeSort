@@ -149,6 +149,10 @@ For fully scripted pipelines, see `functions/eyesort_batch_process.m` for an exa
 - BDF: `eyesort_bins.txt` (or your chosen name/path)
 - Metadata fields on events/dataset for traceability (e.g., `eyesort_full_code`, `eyesort_label_descriptions`, `eyesort_field_names`)
 
+### User Manual
+
+📄 [EyeSort_Manual.pdf](https://github.com/user-attachments/files/21904321/EyeSort_Manual.pdf)
+
 ### Citation and license
 
 - To be included...
