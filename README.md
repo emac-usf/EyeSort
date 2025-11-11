@@ -160,5 +160,10 @@ For fully scripted pipelines, see `functions/eyesort_batch_process.m` for an exa
 
 ### Contact and help
 
+- Please feel free to contact us about any questions, comments or concerns at:
+  - Sara Milligan: smilliga@usf.edu
+  - Brandon Snyder: snyderb96@gmail.com
+  - Elizabeth Schotter: eschotter@usf.edu
+ 
 - Use `EyeSort → Help` to open `help.txt` (stub). For detailed docs, use this README.
-- Issues and questions: open a ticket on the repository.
+- Found a bug? Open a ticket on the repository.
