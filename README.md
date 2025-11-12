@@ -8,7 +8,15 @@ EyeSort is an EEGLAB plugin that integrates text/pixel interest areas with synch
 - Auto-generate BINLISTER Bin Descriptor Files (BDF) from labeled codes
 - Save labeled datasets for downstream ERP workflows
 
-Current version: see `eyesort_default_values.m` (e.g., `0.4.7`).
+**Latest release:** [GitHub Releases](../../releases) · **Docs:** User Manual (below)
+
+## Downloads
+
+- **Sample datasets + IA file (zip):**  
+  [Download](https://github.com/emac-usf/EyeSort/releases/latest/download/EyeSort_compatible_files.zip)
+
+- **User Manual (PDF):**  
+  [Download](https://github.com/emac-usf/EyeSort/releases/latest/download/EyeSort_Manual.pdf)
 
 ### Requirements
 
@@ -149,14 +157,10 @@ For fully scripted pipelines, see `functions/eyesort_batch_process.m` for an exa
 - BDF: `eyesort_bins.txt` (or your chosen name/path)
 - Metadata fields on events/dataset for traceability (e.g., `eyesort_full_code`, `eyesort_label_descriptions`, `eyesort_field_names`)
 
-### User Manual
-
-📄 [EyeSort_Manual.pdf](https://github.com/user-attachments/files/21904321/EyeSort_Manual.pdf)
-
 ### Citation and license
 
 - To be included...
-- License: 
+- License: License: GPL-3.0-or-later (see LICENSE).
 
 ### Contact and help
 
