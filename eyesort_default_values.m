@@ -1,2 +1,2 @@
 % Current EyeSort version
-eyesortver = '0.4.8';
+eyesortver = '0.4.9';
