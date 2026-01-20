@@ -83,13 +83,13 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
 
     % Initialize new fields for all events
     [EEG.event.current_region] = deal('');
-    [EEG.event.previous_fixation_region] = deal('');
-    [EEG.event.next_fixation_region] = deal('');
-    [EEG.event.last_region_visited] = deal('');  % New: tracks the actual last region visited (different from previousRegion which tracks the previous fixation)
-    [EEG.event.next_region_visited] = deal('');  % New: tracks the next different region that will be visited after this fixation
-    [EEG.event.region_pass_number] = deal(0);       % New: which pass through this region (1st, 2nd, etc.)
-    [EEG.event.fixation_in_pass] = deal(0);         % New: which fixation in the current pass (1st, 2nd, etc.)
-    [EEG.event.is_last_in_pass] = deal(false);      % New: pre-computed flag for last fixation in pass
+    [EEG.event.previous_fixation_region] = deal('');  % previous region
+    [EEG.event.next_fixation_region] = deal('');      % tracks next fixation event in the following region
+    [EEG.event.last_region_visited] = deal('');       % tracks the actual last region visited (different from previousRegion which tracks the previous fixation)
+    [EEG.event.next_region_visited] = deal('');       % tracks the next different region that will be visited after this fixation
+    [EEG.event.region_pass_number] = deal(0);         % which pass through this region (1st, 2nd, etc.)
+    [EEG.event.fixation_in_pass] = deal(0);           % which fixation in the current pass (1st, 2nd, etc.)
+    [EEG.event.is_last_in_pass] = deal(false);        % pre-computed flag for last fixation in pass
     [EEG.event.current_word] = deal('');
     [EEG.event.previous_word] = deal('');
     [EEG.event.is_first_pass_region] = deal(false);

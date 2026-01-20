@@ -343,10 +343,6 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     % Process each row (stimulus) in the text file
     fprintf('Processing %d rows of data...\n', height(data));
     
-    % Add validation flag for space checking
-    spaceValidationPassed = true;
-    spaceValidationErrors = {};
-    
     for iRow = 1:height(data)
         try
             % Create a unique key based on condition and item numbers
@@ -357,28 +353,6 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
             regionBoundaries = zeros(numRegions, 2);  % [start, end] for each region
             wordBoundaries = containers.Map('KeyType', 'char', 'ValueType', 'any');
             regionWords = struct();
-            
-            % Validate region spacing before processing boundaries
-            for r = 1:numRegions
-                % Get the text for this region
-                regionText = data.(regionNames{r}){iRow};
-                if iscell(regionText)
-                    regionText = char(regionText);
-                end
-                
-                % Check space requirement: all regions except the first should start with a space
-                if r > 1 && ~isempty(regionText) && ~startsWith(regionText, ' ')
-                    spaceValidationPassed = false;
-                    errorMsg = sprintf('Row %d, Region %d (%s): Missing leading space. Text starts with "%s"', ...
-                                     iRow, r, regionNames{r}, regionText(1:min(10, length(regionText))));
-                    spaceValidationErrors{end+1} = errorMsg;
-                elseif r == 1 && ~isempty(regionText) && startsWith(regionText, ' ')
-                    spaceValidationPassed = false;
-                    errorMsg = sprintf('Row %d, Region %d (%s): First region should not start with a space. Text starts with space', ...
-                                     iRow, r, regionNames{r});
-                    spaceValidationErrors{end+1} = errorMsg;
-                end
-            end
             
             % Process each region in the stimulus
             for r = 1:numRegions
@@ -454,41 +428,6 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
         catch ME
             warning('Error processing row %d: %s', iRow, ME.message);
         end
-    end
-    
-    % Check if space validation passed and report errors if any
-    if ~spaceValidationPassed
-        fprintf('\n=== REGION SPACING VALIDATION ERRORS ===\n');
-        fprintf('Found %d spacing errors in the interest area text file:\n\n', length(spaceValidationErrors));
-        for i = 1:length(spaceValidationErrors)
-            fprintf('%d. %s\n', i, spaceValidationErrors{i});
-        end
-        fprintf('\nREQUIREMENT: All regions except the first should start with a space.\n');
-        fprintf('The first region should NOT start with a space.\n');
-        fprintf('Please fix these spacing issues in your text file and try again.\n');
-        
-        % Create detailed error message for the error dialog
-        errorMsg = sprintf(['REGION SPACING VALIDATION ERRORS\n\n' ...
-                           'Found %d spacing errors in the interest area text file:\n\n'], ...
-                           length(spaceValidationErrors));
-        
-        % Add first few errors to the dialog (limit to avoid overly long dialogs)
-        maxErrorsToShow = min(5, length(spaceValidationErrors));
-        for i = 1:maxErrorsToShow
-            errorMsg = [errorMsg sprintf('%d. %s\n', i, spaceValidationErrors{i})];
-        end
-        
-        if length(spaceValidationErrors) > maxErrorsToShow
-            errorMsg = [errorMsg sprintf('\n... and %d more errors (see command window for full list)\n', ...
-                       length(spaceValidationErrors) - maxErrorsToShow)];
-        end
-        
-        errorMsg = [errorMsg sprintf(['\nREQUIREMENT:\n' ...
-                                     '• First region should NOT start with a space\n' ...
-                                     '• All other regions SHOULD start with a space\n\n' ...
-                                     'Please fix these spacing issues in your text file and try again.'])];
-        
-        error(errorMsg);
     end
     
     fprintf('Processed %d rows\n', height(data));
