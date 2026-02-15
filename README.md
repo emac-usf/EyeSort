@@ -74,10 +74,6 @@ Key inputs in the GUI (with defaults/placeholders):
 - Eye event names/fields (fixation, saccade, X positions) — customizable if your dataset differs from defaults
 
 Notes and validations:
-- Region spacing requirement in your IA file text:
-  - First region must NOT start with a space
-  - All subsequent regions MUST start with a single leading space
-  - Violations are reported with row/region details and must be corrected
 - Region column names are matched robustly (case-insensitive; with/without `$`), and helpful errors are shown when missing
 - You can Save/Load your Text IA configuration (`*.mat`) and the plugin auto-saves the last-used configuration to `last_text_ia_config.mat`
 - Optional: Save intermediate dataset(s) after IA processing but before labeling. Files use `*_eyesort_ia.set`
@@ -147,8 +143,7 @@ For fully scripted pipelines, see `functions/eyesort_batch_process.m` for an exa
 - “No labeled events found”: your criteria may be too strict, or events already carry prior labels; relax options or clear conflicts
 - IA file errors:
   - Missing region columns or mismatched names — verify headers match your GUI inputs
-  - Region spacing rule violated — first region no space; subsequent regions start with one space
-- Eye event field names differ from defaults — enable “Change default event field names” in the Text IA GUI and supply your names
+- Eye event field names differ from defaults — enable "Change default event field names" in the Text IA GUI and supply your names
 
 ### What EyeSort writes
 
