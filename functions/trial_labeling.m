@@ -75,10 +75,10 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
     visitedRegions = containers.Map('KeyType', 'char', 'ValueType', 'logical');
     regionFixationCounts = containers.Map('KeyType', 'char', 'ValueType', 'double');
     previousWord = '';
-    currentTrialPass = 1;  % Global pass counter for the trial
 
-    % New maps for tracking region passes and fixation counts within passes
+    % Per-region pass tracking and fixation counts within passes
     currentPassFixationCounts = containers.Map('KeyType', 'char', 'ValueType', 'double'); % Tracks fixation count in current pass
+    regionPassMap = containers.Map('KeyType', 'char', 'ValueType', 'double');  % Tracks pass number per region independently
     lastRegionVisited = '';  % Tracks the actual last region visited (different from previousRegion which tracks the previous fixation)
 
     % Initialize new fields for all events
@@ -142,9 +142,9 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
             regionFixationCounts = containers.Map('KeyType', 'char', 'ValueType', 'double');
             % Reset pass tracking variables
             currentPassFixationCounts = containers.Map('KeyType', 'char', 'ValueType', 'double');
+            regionPassMap = containers.Map('KeyType', 'char', 'ValueType', 'double');  % Per-region pass tracking
             lastRegionVisited = '';
             previousWord = '';
-            currentTrialPass = 1;  % Reset pass counter for new trial
             sentenceActive = ~useSentenceCodes;  % Reset sentence state for new trial
             % Also, clear any last region storage from previous trial:
             inEndRegion = false;
@@ -281,15 +281,10 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
                         end
                         
                         % ======= REGRESSION DETECTION AND PASS TRACKING =======
-                        % Calculate regression once, use for both pass tracking and regression fields
+                        % Detect regressions for regression fields
                         if ~isempty(previousWord)
                             [prev_region, prev_word_num] = parse_word_region(previousWord);
                             isRegression = (curr_region < prev_region);
-                            
-                            % Use for pass tracking
-                            if isRegression
-                                currentTrialPass = currentTrialPass + 1;
-                            end
                             
                             % Set regression fields
                             EEG.event(iEvt).is_region_regression = isRegression;
@@ -298,43 +293,47 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
                             else
                                 EEG.event(iEvt).is_word_regression = false;
                             end
-                        end
-                        
-                        % Set the pass number for this fixation
-                        EEG.event(iEvt).region_pass_number = currentTrialPass;
-                        
-                        % Track fixation within current pass
-                        if isempty(lastRegionVisited) || ~strcmpi(regionName, lastRegionVisited)
-                            % First fixation in this region for current pass
-                            currentPassFixationCounts(regionName) = 1;
-                            lastRegionVisited = regionName;
-                        else
-                            % Continuing in same region, same pass
-                            currentPassFixationCounts(regionName) = currentPassFixationCounts(regionName) + 1;
-                        end
-                        EEG.event(iEvt).fixation_in_pass = currentPassFixationCounts(regionName);
-                        % ======= END REGION PASS TRACKING LOGIC =======
-                        
-                        % Update first-pass region information
-                        % Only mark as first pass if:
-                        % 1. This is the first visit to this region AND
-                        % 2. We haven't visited any regions with a higher number
-                        isFirstVisit = ~isKey(visitedRegions, regionKey);
-                        hasVisitedLaterRegion = false;
-                        
-                        % Check if any region with a higher number has been visited
-                        if isFirstVisit
-                            regionKeys = visitedRegions.keys();
-                            for k = 1:length(regionKeys)
-                                visitedRegionNum = str2double(regionKeys{k});
-                                if visitedRegionNum > curr_region
-                                    hasVisitedLaterRegion = true;
-                                    break;
-                                end
+                            
+                            % Mark trial as regression trial if ANY region regression occurs
+                            if isRegression && ~hasRegressionBeenFound(currentTrial)
+                                hasRegressionBeenFound(currentTrial) = true;
+                                trialRegressionMap(currentTrial) = true;
                             end
                         end
                         
-                        % Only mark as first pass if both conditions are met
+                        % Per-region pass tracking: increment pass count when entering a region
+                        % Each region tracks its own pass number independently
+                        if isempty(lastRegionVisited) || ~strcmpi(regionName, lastRegionVisited)
+                            % Entering this region (either first time or returning)
+                            if isKey(regionPassMap, regionName)
+                                % Returning to this region - increment its pass counter
+                                regionPassMap(regionName) = regionPassMap(regionName) + 1;
+                            else
+                                % First visit: a skip (later region already visited) counts as
+                                % pass 1, so the first actual fixation starts at pass 2.
+                                % Uses the same hasVisitedLaterRegion already computed above;
+                                % skip-based pass inflation only applies on first entry.
+                                regionPassMap(regionName) = 1 + hasVisitedLaterRegion;
+                            end
+                            % Reset fixation counter for this new pass
+                            currentPassFixationCounts(regionName) = 1;
+                            lastRegionVisited = regionName;
+                        else
+                            % Continuing in same region, same pass - increment fixation counter
+                            currentPassFixationCounts(regionName) = currentPassFixationCounts(regionName) + 1;
+                        end
+                        
+                        % Set pass number and fixation count for this fixation
+                        EEG.event(iEvt).region_pass_number = regionPassMap(regionName);
+                        EEG.event(iEvt).fixation_in_pass = currentPassFixationCounts(regionName);
+                        % ======= END REGION PASS TRACKING LOGIC =======
+                        
+                        % is_first_pass_region rules (both must hold):
+                        %   1. Region must not have already been visited
+                        %   2. No fixations in any further regions
+                        % hasVisitedLaterRegion is already computed above and has not
+                        % changed since (visitedRegions is not modified until line below).
+                        isFirstVisit = ~isKey(visitedRegions, regionKey);
                         EEG.event(iEvt).is_first_pass_region = isFirstVisit && ~hasVisitedLaterRegion;
                         visitedRegions(regionKey) = true;
                         
@@ -377,12 +376,6 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
                                     % Word-level regression detected in the last region.
                                     hasRegressionBeenFound(currentTrial) = true;
                                     trialRegressionMap(currentTrial) = true;
-                                    % Mark all events in this trial as regression trials.
-                                    for k = 1:length(EEG.event)
-                                        if EEG.event(k).trial_number == currentTrial
-                                            EEG.event(k).is_regression_trial = true;
-                                        end
-                                    end
                                 end
                             end
                         else
@@ -392,11 +385,6 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
                             if inEndRegion && ~hasRegressionBeenFound(currentTrial)
                                 hasRegressionBeenFound(currentTrial) = true;
                                 trialRegressionMap(currentTrial) = true;
-                                for k = 1:length(EEG.event)
-                                    if EEG.event(k).trial_number == currentTrial
-                                        EEG.event(k).is_regression_trial = true;
-                                    end
-                                end
                                 
                                 % Clear the last-region storage.
                                 inEndRegion = false;
@@ -421,6 +409,21 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
             end
         end
     end
+    
+    % Mark all events in regression trials
+    fprintf('Marking all events in regression trials...\n');
+    regressionTrials = keys(trialRegressionMap);
+    for i = 1:length(regressionTrials)
+        trialNum = regressionTrials{i};
+        if trialRegressionMap(trialNum)
+            for k = 1:length(EEG.event)
+                if EEG.event(k).trial_number == trialNum
+                    EEG.event(k).is_regression_trial = true;
+                end
+            end
+        end
+    end
+    fprintf('Done marking regression trials.\n');
     
     % Optimized single pass to compute all region tracking fields
     fprintf('Computing previous_fixation_region, next_fixation_region, next_region_visited, and last_region_visited fields...\n');
