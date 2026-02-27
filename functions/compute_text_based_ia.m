@@ -119,6 +119,13 @@ function EEG = compute_text_based_ia(EEG, varargin)
                 end
             end
             
+            % RTL flag (from config, default false)
+            if isfield(config, 'rtl')
+                rtl = logical(config.rtl);
+            else
+                rtl = false;
+            end
+            
             % Parse any remaining optional parameters
             remaining_args = varargin(2:end);
             p = inputParser;
@@ -164,7 +171,9 @@ function EEG = compute_text_based_ia(EEG, varargin)
             remaining_args = varargin(20:end);
             p = inputParser;
             addParameter(p, 'batch_mode', false, @islogical);
+            addParameter(p, 'rtl', false, @(x) islogical(x) || isnumeric(x));
             parse(p, remaining_args{:});
+            rtl = logical(p.Results.rtl);
             % batch_mode = p.Results.batch_mode; % Currently unused
         end
     else
@@ -182,7 +191,7 @@ function EEG = compute_text_based_ia(EEG, varargin)
                                               numRegions, regionNames, conditionColName, itemColName, ...
                                               startCode, endCode, conditionTriggers, itemTriggers, ...
                                               fixationType, fixationXField, saccadeType, saccadeStartXField, saccadeEndXField, ...
-                                              sentenceStartCode, sentenceEndCode, conditionTypeColName);
+                                              sentenceStartCode, sentenceEndCode, conditionTypeColName, rtl);
             
             % Store back in the array - NO SAVING
             EEG(idx) = currentEEG;
@@ -196,14 +205,14 @@ function EEG = compute_text_based_ia(EEG, varargin)
                                               numRegions, regionNames, conditionColName, itemColName, ...
                                               startCode, endCode, conditionTriggers, itemTriggers, ...
                                               fixationType, fixationXField, saccadeType, saccadeStartXField, saccadeEndXField, ...
-                                              sentenceStartCode, sentenceEndCode, conditionTypeColName);
+                                              sentenceStartCode, sentenceEndCode, conditionTypeColName, rtl);
 end
 
 function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
                                               numRegions, regionNames, conditionColName, itemColName, ...
                                               startCode, endCode, conditionTriggers, itemTriggers, ...
                                               fixationType, fixationXField, saccadeType, saccadeStartXField, saccadeEndXField, ...
-                                              sentenceStartCode, sentenceEndCode, conditionTypeColName)
+                                              sentenceStartCode, sentenceEndCode, conditionTypeColName, rtl)
     %% PROCESS_SINGLE_DATASET - Core processing function for interest areas
     %
     % This function processes a single EEG dataset, performing the following steps:
@@ -218,6 +227,10 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     if nargin < 20
         error('compute_text_based_ia_word_level: Not enough input arguments. Field names and sentence codes must be specified.');
     end
+    if nargin < 21
+        rtl = false;
+    end
+    rtl = logical(rtl);
     
     % No default values - all field names must be provided by the user
     
@@ -349,16 +362,15 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
             key = sprintf('%d_%d', data.(conditionColName)(iRow), data.(itemColName)(iRow));
             
             % Initialize variables for this row
-            currentPosition = offset;  % Start at the specified screen offset
-            regionBoundaries = zeros(numRegions, 2);  % [start, end] for each region
+            % LTR: currentPosition is the left edge of the first region
+            % RTL: currentPosition is the right edge of the first region
+            currentPosition = offset;
+            regionBoundaries = zeros(numRegions, 2);  % [left, right] for each region
             wordBoundaries = containers.Map('KeyType', 'char', 'ValueType', 'any');
             regionWords = struct();
             
             % Process each region in the stimulus
             for r = 1:numRegions
-                % Mark the start of this region
-                regionStart = currentPosition;
-                
                 % Get the text for this region
                 regionText = data.(regionNames{r}){iRow};
                 if iscell(regionText)
@@ -367,10 +379,22 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
                 
                 % Calculate region width in pixels based on character count
                 regionWidth = pxPerChar * length(regionText);
-                currentPosition = regionStart + regionWidth;
                 
-                % Store the region boundaries
-                regionBoundaries(r,:) = [regionStart, currentPosition];
+                % Compute region boundaries based on reading direction
+                if rtl
+                    % RTL: advance leftward; region 1 is rightmost on screen
+                    regionEnd   = currentPosition;
+                    regionStart = currentPosition - regionWidth;
+                    currentPosition = regionStart;
+                else
+                    % LTR: advance rightward; region 1 is leftmost on screen
+                    regionStart = currentPosition;
+                    regionEnd   = currentPosition + regionWidth;
+                    currentPosition = regionEnd;
+                end
+                
+                % Store the region boundaries [left, right]
+                regionBoundaries(r,:) = [regionStart, regionEnd];
                 
                 % Extract words from the region text using regular expressions
                 % This finds all sequences of non-whitespace with any preceding whitespace
@@ -384,9 +408,15 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
                 for idx = 1:length(wordStarts)
                     wordKey = sprintf('%d.%d', r, idx);  % Format: "region.word_number"
                     
-                    % Convert character positions to pixel positions
-                    wordPixelStart = regionStart + (wordStarts(idx) - 1) * pxPerChar;
-                    wordPixelEnd   = regionStart + wordEnds(idx) * pxPerChar;
+                    if rtl
+                        % RTL: word idx=1 maps to the rightmost position (first to read)
+                        wordPixelEnd   = regionEnd - (wordStarts(idx) - 1) * pxPerChar;
+                        wordPixelStart = regionEnd - wordEnds(idx) * pxPerChar;
+                    else
+                        % LTR: word idx=1 is leftmost
+                        wordPixelStart = regionStart + (wordStarts(idx) - 1) * pxPerChar;
+                        wordPixelEnd   = regionStart + wordEnds(idx) * pxPerChar;
+                    end
                     
                     % Store the word boundaries
                     wordBoundaries(wordKey) = [wordPixelStart, wordPixelEnd];
@@ -583,6 +613,7 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     EEG.eyesort_field_names.saccadeType = saccadeType;
     EEG.eyesort_field_names.saccadeStartXField = saccadeStartXField;
     EEG.eyesort_field_names.saccadeEndXField = saccadeEndXField;
+    EEG.eyesort_field_names.rtl = rtl;
     
     % Store the region names for use by other functions
     EEG.region_names = regionNames;
