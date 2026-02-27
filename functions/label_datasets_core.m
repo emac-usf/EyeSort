@@ -194,6 +194,9 @@ saccadeType = EEG.eyesort_field_names.saccadeType;
 saccadeStartXField = EEG.eyesort_field_names.saccadeStartXField;
 saccadeEndXField = EEG.eyesort_field_names.saccadeEndXField;
 
+% Read RTL reading direction flag (stored during text IA processing)
+rtl = isfield(EEG.eyesort_field_names, 'rtl') && EEG.eyesort_field_names.rtl;
+
 % Extract conditions and items if not provided
 if isempty(conditions) && isfield(EEG.event, 'condition_number')
     condVals = zeros(1, length(EEG.event));
@@ -689,14 +692,14 @@ function labeledEEG = label_dataset_internal(EEG, conditions, items, timeLockedR
                 if isKey(prevSaccadeMap, mm)
                     prevSaccadeIdx = prevSaccadeMap(mm);
                     xChange = EEG.event(prevSaccadeIdx).(saccadeEndXField) - EEG.event(prevSaccadeIdx).(saccadeStartXField);
-                    isForward = xChange > 0;
+                    isForward = (xChange > 0) ~= rtl;
                     
                     if saccadeInOptions == 2
-                        passesSaccadeInDirection = isForward && abs(xChange) > 10;
+                        passesSaccadeInDirection = isForward && abs(xChange) > 5;
                     elseif saccadeInOptions == 3
-                        passesSaccadeInDirection = ~isForward && abs(xChange) > 10;
+                        passesSaccadeInDirection = ~isForward && abs(xChange) > 5;
                     elseif saccadeInOptions == 4
-                        passesSaccadeInDirection = abs(xChange) > 10;
+                        passesSaccadeInDirection = abs(xChange) > 5;
                     end
                                  else
                      if saccadeInOptions == 4
@@ -713,9 +716,9 @@ function labeledEEG = label_dataset_internal(EEG, conditions, items, timeLockedR
                 if isKey(prevSaccadeMap, mm)
                     prevSaccadeIdx = prevSaccadeMap(mm);
                     xChange = EEG.event(prevSaccadeIdx).(saccadeEndXField) - EEG.event(prevSaccadeIdx).(saccadeStartXField);
-                    isForward = xChange > 0;
+                    isForward = (xChange > 0) ~= rtl;
                     
-                    if abs(xChange) > 10
+                    if abs(xChange) > 5
                         for opt = saccadeInOptions
                             if opt == 2 && isForward
                                 passesSaccadeInDirection = true;
@@ -746,7 +749,7 @@ function labeledEEG = label_dataset_internal(EEG, conditions, items, timeLockedR
                 if isKey(nextSaccadeMap, mm)
                     nextSaccadeIdx = nextSaccadeMap(mm);
                     xChange = EEG.event(nextSaccadeIdx).(saccadeEndXField) - EEG.event(nextSaccadeIdx).(saccadeStartXField);
-                    isForward = xChange > 0;
+                    isForward = (xChange > 0) ~= rtl;
                     
                     if saccadeOutOptions == 2
                         passesSaccadeOutDirection = isForward && abs(xChange) > 10;
@@ -770,7 +773,7 @@ function labeledEEG = label_dataset_internal(EEG, conditions, items, timeLockedR
                 if isKey(nextSaccadeMap, mm)
                     nextSaccadeIdx = nextSaccadeMap(mm);
                     xChange = EEG.event(nextSaccadeIdx).(saccadeEndXField) - EEG.event(nextSaccadeIdx).(saccadeStartXField);
-                    isForward = xChange > 0;
+                    isForward = (xChange > 0) ~= rtl;
                     
                     if abs(xChange) > 10
                         for opt = saccadeOutOptions
