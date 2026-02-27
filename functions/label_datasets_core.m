@@ -240,7 +240,7 @@ try
                                             passOptions, prevRegions, nextRegions, ...
                                             fixationOptions, saccadeInOptions, saccadeOutOptions, labelCount, ...
                                             fixationType, fixationXField, saccadeType, ...
-                                            saccadeStartXField, saccadeEndXField, labelDescription);
+                                            saccadeStartXField, saccadeEndXField, labelDescription, rtl);
     
     % Update label count and descriptions
     labeledEEG.eyesort_label_count = labelCount;
@@ -293,7 +293,7 @@ function labeledEEG = label_dataset_internal(EEG, conditions, items, timeLockedR
                                                 fixationOptions, saccadeInOptions, ...
                                                 saccadeOutOptions, labelCount, ...
                                                 fixationType, fixationXField, saccadeType, ...
-                                                saccadeStartXField, saccadeEndXField, labelDescription)
+                                                saccadeStartXField, saccadeEndXField, labelDescription, rtl)
     % Optimized internal labeling implementation with O(n) complexity
     
     % Create a copy of the EEG structure
@@ -466,7 +466,25 @@ function labeledEEG = label_dataset_internal(EEG, conditions, items, timeLockedR
             end
         end
         if ~isempty(prevSaccade)
-            prevSaccadeMap(idx) = prevSaccade;
+            % Only accept prev saccade if it is within the same trial.
+            % Skip over adjacent fixations with trial_number=0 (in-trial but unassigned
+            % to a region) to find the nearest fixation with a valid trial number.
+            withinTrial = true;
+            if trialNumbers(idx) > 0
+                prevValidTrial = 0;
+                for k = i-1:-1:1
+                    if trialNumbers(fixationIndices(k)) > 0
+                        prevValidTrial = trialNumbers(fixationIndices(k));
+                        break;
+                    end
+                end
+                if prevValidTrial ~= trialNumbers(idx)
+                    withinTrial = false;
+                end
+            end
+            if withinTrial
+                prevSaccadeMap(idx) = prevSaccade;
+            end
         end
         
         % Find next saccade
@@ -478,7 +496,25 @@ function labeledEEG = label_dataset_internal(EEG, conditions, items, timeLockedR
             end
         end
         if ~isempty(nextSaccade)
-            nextSaccadeMap(idx) = nextSaccade;
+            % Only accept next saccade if it is within the same trial.
+            % Skip over adjacent fixations with trial_number=0 (in-trial but unassigned
+            % to a region) to find the nearest fixation with a valid trial number.
+            withinTrial = true;
+            if trialNumbers(idx) > 0
+                nextValidTrial = 0;
+                for k = i+1:length(fixationIndices)
+                    if trialNumbers(fixationIndices(k)) > 0
+                        nextValidTrial = trialNumbers(fixationIndices(k));
+                        break;
+                    end
+                end
+                if nextValidTrial ~= trialNumbers(idx)
+                    withinTrial = false;
+                end
+            end
+            if withinTrial
+                nextSaccadeMap(idx) = nextSaccade;
+            end
         end
     end
     
