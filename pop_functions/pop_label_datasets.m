@@ -28,6 +28,10 @@ function [EEG, com] = pop_label_datasets(EEG)
     % Initialize output
     com = '';
     
+    % Queue state: labels are collected here before being applied all at once
+    pending_labels = {};           % cell array of config structs
+    saved_conflict_resolution = ''; % '' = ask each time, 'yes'/'no' = remembered choice
+    
     % Check if we're in batch mode first
     batch_mode = false;
     batchFilePaths = {};
@@ -35,10 +39,7 @@ function [EEG, com] = pop_label_datasets(EEG)
     outputDir = '';
     
     % Track current label number for batch processing
-    persistent current_batch_label_count;
-    if isempty(current_batch_label_count)
-        current_batch_label_count = 0;
-    end
+    current_batch_label_count = 0;
     
     try
         batch_mode = evalin('base', 'eyesort_batch_mode');
@@ -48,10 +49,6 @@ function [EEG, com] = pop_label_datasets(EEG)
             outputDir = evalin('base', 'eyesort_batch_output_dir');
             fprintf('Batch mode detected: %d datasets ready for labeling\n', length(batchFilePaths));
             
-            % Reset label count when starting new batch session
-            if current_batch_label_count == 0
-                current_batch_label_count = 0;
-            end
         end
     catch
         % Not in batch mode, continue with single dataset
@@ -151,33 +148,27 @@ function [EEG, com] = pop_label_datasets(EEG)
     saccadeOutDirectionOptions = {'Forward only', 'Backward only'};
     
     % Create parts of the layout for non-region sections
+    % geomhoriz and geomvert are built in parallel (one entry per GUI row).
+    % geomvert controls relative row heights; the label-queue listbox gets 4x height.
     geomhoriz = { ...
-        1, ...        % Label Dataset Options title
         1, ...                % Configuration management
-        [1 1 1], ... % Save config, Load config, Load last config buttons
-        1, ...                % Label Description title
-        [0.75 1], ...            % Label Description edit box
-        1, ...                % Time-Locked Region title
-        1, ...                % Time-Locked Region description
+        [1 1 1], ...            % Load config, Load last config buttons
+        [0.5 1], ...          % Label Description label + edit box (consolidated)
+        1, ...                % Time-Locked Region title (description folded in)
     };
+    geomvert = [1, 1, 1, 1];
     
     uilist = { ...
-        {'Style','text','String','Eye-Tracking Event Labeling Options:', 'FontWeight', 'bold'}, ...
-        ...
         {'Style','text','String','Configuration Management:', 'FontWeight', 'bold'}, ...
         ...
-        {'Style','pushbutton','String','Save Label Configuration','callback', @save_label_config_callback}, ...
         {'Style','pushbutton','String','Load Label Configuration','callback', @load_label_config_callback}, ...
         {'Style','pushbutton','String','Load Previous Label Configuration','callback', @load_last_label_config_callback}, ...
+        {}, ...   % spacer
         ...
-        {'Style','text','String','Label Description:', 'FontWeight', 'bold'}, ...
-        ...
-        {'Style','text','String','Description for this label (used in BDF generation):'}, ...
+        {'Style','text','String','Label Description (used in BDF generation):', 'FontWeight', 'bold'}, ...
         {'Style','edit','String','','tag','edtLabelDescription','ForegroundColor',[0 0 0]}, ...
         ...
-        {'Style','text','String','Time-Locked Region Selection:', 'FontWeight', 'bold'}, ...
-        ...
-        {'Style','text','String','Indicates the main region of interest for the rest of the selections to be applied.'}, ...
+        {'Style','text','String','Time-Locked Region: (main region of interest for all label criteria)', 'FontWeight', 'bold'}, ...
     };
     
     % Add dynamically generated checkboxes for regions
@@ -196,6 +187,7 @@ function [EEG, com] = pop_label_datasets(EEG)
             rowGeom(col) = 1/columnsInRow;
         end
         geomhoriz{end+1} = rowGeom;
+        geomvert(end+1) = 1;
         
         % Add checkboxes for this row
         for col = 1:columnsInRow
@@ -212,25 +204,20 @@ function [EEG, com] = pop_label_datasets(EEG)
     
     % Continue with the rest of the UI
     additionalGeomHoriz = { ...
-        1, ...                 % Pass Type Selection title
-        1, ...                % Pass Type Selection Description
+        1, ...                        % Pass Type title (description folded in)
         [0.33 0.33 0.34], ...         % Pass type checkboxes
-        1, ...                 % Previous Region Navigation title
-        1  ...                 % Previous Region Navigation Description
+        1 ...                         % Previous Region title (description folded in)
     };
+    additionalGeomVert = [1, 1, 1];
     
     additionalUIList = { ...
-        {'Style','text','String','Pass Type Selection:', 'FontWeight', 'bold'}, ...
-        ...
-        {'Style','text','String','Indicates what pass the fixation needs to be when fixating on the time-locked region.'}, ...
+        {'Style','text','String','Pass Type: (first, second, or third+ pass through the time-locked region)', 'FontWeight', 'bold'}, ...
         ...
         {'Style','checkbox','String', passTypeOptions{1}, 'tag','chkPass1'}, ...
         {'Style','checkbox','String', passTypeOptions{2}, 'tag','chkPass2'}, ...
         {'Style','checkbox','String', passTypeOptions{3}, 'tag','chkPass3'}, ...
         ...
-        {'Style','text','String','Previous Region Selection:', 'FontWeight', 'bold'}, ...
-        ...
-        {'Style','text','String','Indicates the last region visited prior to entering the time-locking region.'}, ...
+        {'Style','text','String','Previous Region: (region visited immediately before the time-locked region)', 'FontWeight', 'bold'}, ...
     };
     
     % Add Previous Region checkboxes with similar logic
@@ -242,6 +229,7 @@ function [EEG, com] = pop_label_datasets(EEG)
             rowGeom(col) = 1/columnsInRow;
         end
         additionalGeomHoriz{end+1} = rowGeom;
+        additionalGeomVert(end+1) = 1;
         
         % Add checkboxes for this row
         for col = 1:columnsInRow
@@ -252,11 +240,10 @@ function [EEG, com] = pop_label_datasets(EEG)
         end
     end
     
-    % Add Next Region title and description after Previous Region checkboxes
-    additionalGeomHoriz{end+1} = 1;  % Next Region title
-    additionalGeomHoriz{end+1} = 1;  % Next Region description
-    additionalUIList{end+1} = {'Style','text','String','Next Region Selection:', 'FontWeight', 'bold'};
-    additionalUIList{end+1} = {'Style','text','String','Indicates the next region visited after leaving the time-locking region.'};
+    % Add Next Region title (description folded in) after Previous Region checkboxes
+    additionalGeomHoriz{end+1} = 1;
+    additionalGeomVert(end+1) = 1;
+    additionalUIList{end+1} = {'Style','text','String','Next Region: (region visited immediately after the time-locked region)', 'FontWeight', 'bold'};
     
     % Add Next Region checkboxes with similar logic
     for row = 1:numRows
@@ -267,6 +254,7 @@ function [EEG, com] = pop_label_datasets(EEG)
             rowGeom(col) = 1/columnsInRow;
         end
         additionalGeomHoriz{end+1} = rowGeom;
+        additionalGeomVert(end+1) = 1;
         
         % Add checkboxes for this row
         for col = 1:columnsInRow
@@ -277,23 +265,24 @@ function [EEG, com] = pop_label_datasets(EEG)
         end
     end
     
-    % Add the rest of the UI controls
+    % Add the rest of the UI controls, including the label queue panel
     additionalGeomHoriz = [additionalGeomHoriz, { ...
-        1, ...                       % Fixation Type Selection title
-        1, ...                       % Fixation Type Description
+        1, ...                       % Fixation Type title (description folded in)
         [0.2 0.2 0.2 0.2 0.2], ...   % Fixation type checkboxes
-        1, ...                       % Saccade Direction Selection title
-        1, ...                       % Saccade Direction Description
+        1, ...                       % Saccade Direction title (description folded in)
         [0.33 0.33 0.33], ...        % Saccade In label and checkboxes
         [0.33 0.33 0.33], ...        % Saccade Out label and checkboxes
-        1, ...                       % Spacer
-        [1 1 1 1] ...            % Buttons
+        1, ...                       % Label Queue section title
+        1, ...                       % Listbox (tall row via geomvert)
+        [0.45 0.55], ...             % Remove Selected button + spacer
+        1, ...                       % Spacer row
+        [1 0.2 1 1 1] ...            % Save Config | spacer | Cancel | Add Label to Queue | Apply All & Finish
     }];
+    % geomvert for the 10 rows above: listbox row gets height 4
+    additionalGeomVert = [additionalGeomVert, 1, 1, 1, 1, 1, 1, 4, 1, 1, 1];
     
     additionalUIList = [additionalUIList, { ...
-        {'Style','text','String','Fixation Type Selection:', 'FontWeight', 'bold'}, ...
-        ...
-        {'Style','text','String','Indicates the exact type of fixation event to be labeled.'}, ...
+        {'Style','text','String','Fixation Type: (single, first-of-multiple, second, all subsequent, or last in region)', 'FontWeight', 'bold'}, ...
         ...
         {'Style','checkbox','String', fixationTypeOptions{1}, 'tag','chkFixType1'}, ...
         {'Style','checkbox','String', fixationTypeOptions{2}, 'tag','chkFixType2'}, ...
@@ -301,9 +290,7 @@ function [EEG, com] = pop_label_datasets(EEG)
         {'Style','checkbox','String', fixationTypeOptions{4}, 'tag','chkFixType4'}, ...
         {'Style','checkbox','String', fixationTypeOptions{5}, 'tag','chkFixType5'}, ...
         ...
-        {'Style','text','String','Saccade Direction Selection:', 'FontWeight', 'bold'}, ...
-        ...
-        {'Style','text','String','Indicates the direction of the saccade event to be labeled.'}, ...
+        {'Style','text','String','Saccade Direction: (into / out-of the time-locked region)', 'FontWeight', 'bold'}, ...
         ...
         {'Style','text','String','Saccade In:'}, ...
         {'Style','checkbox','String', saccadeInDirectionOptions{1}, 'tag','chkSaccadeIn1'}, ...
@@ -312,21 +299,27 @@ function [EEG, com] = pop_label_datasets(EEG)
         {'Style','text','String','Saccade Out:'}, ...
         {'Style','checkbox','String', saccadeOutDirectionOptions{1}, 'tag','chkSaccadeOut1'}, ...
         {'Style','checkbox','String', saccadeOutDirectionOptions{2}, 'tag','chkSaccadeOut2'}, ...
+        {'Style','text','String','Label Queue (configure labels above, then add them here):', 'FontWeight', 'bold'}, ...
+        {'Style','listbox','String',{'(no labels queued)'},'tag','lstPendingLabels','Min',0,'Max',1}, ...
+        {'Style','pushbutton','String','Remove Selected Label','callback', @remove_selected_label}, ...
+        {}, ...   % spacer beside Remove button
         ...
-        {}, ...
+        {}, ...   % spacer row
         ...
-        {}, ...
-        {'Style', 'pushbutton', 'String', 'Cancel', 'callback', @(~,~) cancel_button}, ...
-        {'Style', 'pushbutton', 'String', 'Apply Additional Label', 'callback', @(~,~) apply_label}, ...
-        {'Style', 'pushbutton', 'String', 'Finish Labeling Process', 'callback', @(~,~) finish_labeling} ...
+        {'Style', 'pushbutton', 'String', 'Save Label Configuration', 'callback', @save_label_config_callback}, ...
+        {}, ...   % spacer between Save and Cancel
+        {'Style', 'pushbutton', 'String', 'Cancel', 'callback', @cancel_button}, ...
+        {'Style', 'pushbutton', 'String', 'Add Label to Queue', 'callback', @add_label_to_queue}, ...
+        {'Style', 'pushbutton', 'String', 'Apply All & Finish', 'callback', @apply_all_and_finish} ...
     }];
     
     % Combine all parts
     geomhoriz = [geomhoriz, additionalGeomHoriz];
+    geomvert  = [geomvert,  additionalGeomVert];
     uilist = [uilist, additionalUIList];
     
     % Create the GUI using supergui (let it create and size the figure)
-    [~, ~, ~, hFig] = supergui('geomhoriz', geomhoriz, 'uilist', uilist, 'title', 'Label EEG Dataset');
+    [~, ~, ~, hFig] = supergui('geomhoriz', geomhoriz, 'geomvert', geomvert, 'uilist', uilist, 'title', 'Eye-Tracking Event Labeling');
     
     % Bring window to front
     figure(gcf);
@@ -336,54 +329,19 @@ function [EEG, com] = pop_label_datasets(EEG)
 
     % Callback for the Cancel button
     function cancel_button(~,~)
-        % Set the command to empty to indicate cancellation
         com = '';
-        uiresume(gcf);  % Resume execution (release uiwait)
-        fprintf('User selected to cancel the labeling process.\n');
+        uiresume(gcf);
+        fprintf('User cancelled the labeling process.\n');
         close(gcf);
     end
 
-    % Callback for the Finish button
-    function finish_labeling(~,~)
-        % Check if we're in batch mode and offer batch processing
-        if batch_mode
-            % Check if any region is selected for the final label
-            regionSelected = false;
-            for ii = 1:length(regionCheckboxTags)
-                if get(findobj('tag', regionCheckboxTags{ii}), 'Value') == 1
-                    regionSelected = true;
-                    break;
-                end
-            end
-            
-            if regionSelected
-                % There's a final label to apply - automatically apply to all datasets
-                apply_label_internal(true);
-                return;
-            end
-            
-            % No final label to apply, just finish
-            % Clean up temporary files
-            cleanup_temp_files(batchFilePaths);
-            
-            % Clear batch mode after processing (keep output dir for BDF generation)
-            evalin('base', 'clear eyesort_batch_file_paths eyesort_batch_filenames eyesort_batch_mode');
-            
-            com = sprintf('EEG = pop_label_datasets(EEG); %% Batch labeling completed with %d labels applied', current_batch_label_count);
-            
-            % Show completion message with total events processed and WAIT for user acknowledgment
-            total_events_msg = sprintf('Batch labeling complete!\n\n%d labels applied.\n\nAll datasets have been processed and are ready for BDF generation.', current_batch_label_count);
-            h_msg = msgbox(total_events_msg, 'Batch Complete');
-            waitfor(h_msg); % Wait for user to close the message box
-            
-            current_batch_label_count = 0; % Reset label count AFTER showing message
-            uiresume(gcf);
-            close(gcf);
-            return;
-        end
-        
-        % Apply the current label if any and then signal completion
-        % Check if any region is selected
+    % -----------------------------------------------------------------------
+    % NEW: Add Label to Queue
+    % Validates the form, collects the config, appends it to pending_labels,
+    % refreshes the queue listbox, and resets the form — no labeling happens yet.
+    % -----------------------------------------------------------------------
+    function add_label_to_queue(~,~)
+        % Validate region selection
         regionSelected = false;
         for ii = 1:length(regionCheckboxTags)
             if get(findobj('tag', regionCheckboxTags{ii}), 'Value') == 1
@@ -391,85 +349,147 @@ function [EEG, com] = pop_label_datasets(EEG)
                 break;
             end
         end
-        
         if ~regionSelected
-            % If no regions selected, just finish without applying a label
-            com = sprintf('EEG = pop_label_datasets(EEG); %% Labeling completed');
-            uiresume(gcf);  % Resume execution (release uiwait)
-            close(gcf);
-        else
-            % Apply the current label and then finish
-            apply_label_internal(true);
-        end
-    end
-
-    % Callback for the Apply Label button
-    function apply_label(~,~)
-        % Apply the label but keep the GUI open for further labeling
-        apply_label_internal(false);
-    end
-
-    % Save label configuration callback
-    function save_label_config_callback(~,~)
-        config = collect_label_gui_settings();
-        if isempty(config)
-            return; % Error occurred in collection
+            errordlg('Please select at least one time-locked region before adding to the queue.', 'Region Required');
+            return;
         end
         
-        % Prompt user for filename
-        [filename, filepath] = uiputfile('*.mat', 'Save Label Configuration', 'my_label_config.mat');
-        figure(gcf); % Bring GUI back to front
-        if isequal(filename, 0)
-            return; % User cancelled
+        % Validate label description
+        labelDescription = get(findobj('tag','edtLabelDescription'), 'String');
+        if iscell(labelDescription), labelDescription = labelDescription{1}; end
+        if isempty(strtrim(labelDescription))
+            errordlg('Please enter a Label Description before adding to the queue.', 'Description Required');
+            return;
         end
+        
+        % Collect config from form
+        label_config = collect_label_gui_settings();
+        if isempty(label_config), return; end
+        
+        % Append to queue and refresh display
+        pending_labels{end+1} = label_config;
+        update_queue_display();
+        
+        % Reset form for the next label
+        reset_gui_for_next_label();
+        
+        fprintf('Label %d added to queue: "%s"\n', length(pending_labels), label_config.labelDescription);
+    end
+
+    % -----------------------------------------------------------------------
+    % NEW: Apply All & Finish
+    % Applies every label in pending_labels sequentially, then closes the GUI.
+    % -----------------------------------------------------------------------
+    function apply_all_and_finish(~,~)
+        if isempty(pending_labels)
+            errordlg(['No labels in queue. Use "Add Label to Queue" to configure and ' ...
+                      'queue at least one label before applying.'], 'Empty Queue');
+            return;
+        end
+        
+        try
+            if batch_mode
+                apply_all_labels_batch();
+            else
+                apply_all_labels_single();
+            end
+        catch ME
+            errordlg(['Error applying labels: ' ME.message], 'Error');
+        end
+    end
+
+    % Save label configuration / queue callback
+    function save_label_config_callback(~,~)
+        % If there are queued labels, offer to save the whole queue or just current form
+        if ~isempty(pending_labels)
+            choice = questdlg('What would you like to save?', 'Save Configuration', ...
+                'Save Full Queue', 'Save Current Form Only', 'Save Full Queue');
+            figure(gcf);
+            if isempty(choice), return; end
+            if strcmp(choice, 'Save Full Queue')
+                to_save = pending_labels;
+            else
+                to_save = collect_label_gui_settings();
+                if isempty(to_save), return; end
+            end
+        else
+            to_save = collect_label_gui_settings();
+            if isempty(to_save), return; end
+        end
+        
+        [filename, filepath] = uiputfile('*.mat', 'Save Label Configuration', 'my_label_config.mat');
+        figure(gcf);
+        if isequal(filename, 0), return; end
         
         full_filename = fullfile(filepath, filename);
-        
         try
-            save_label_config(config, full_filename);
-            msgbox(sprintf('Label configuration saved successfully to:\n%s', full_filename), 'Save Complete', 'help');
-            figure(gcf); % Bring GUI back to front
+            save_label_config(to_save, full_filename);
+            if iscell(to_save)
+                msgbox(sprintf('Label queue (%d label(s)) saved to:\n%s', length(to_save), full_filename), 'Save Complete', 'help');
+            else
+                msgbox(sprintf('Label configuration saved to:\n%s', full_filename), 'Save Complete', 'help');
+            end
+            figure(gcf);
         catch ME
-            errordlg(['Error saving label configuration: ' ME.message], 'Save Error');
-            figure(gcf); % Bring GUI back to front
+            errordlg(['Error saving: ' ME.message], 'Save Error');
+            figure(gcf);
         end
     end
 
-    % Load label configuration callback
+    % Load label configuration / queue callback
     function load_label_config_callback(~,~)
         try
-            config = load_label_config(); % Will show file dialog
-            figure(gcf); % Bring GUI back to front
-            if isempty(config)
-                return; % User cancelled
-            end
-            
-            apply_label_config_to_gui(config);
-            msgbox('Label configuration loaded successfully!', 'Load Complete', 'help');
-            figure(gcf); % Bring GUI back to front
+            result = load_label_config(); % Shows file dialog
+            figure(gcf);
+            if isempty(result), return; end
+            handle_loaded_config(result);
         catch ME
-            errordlg(['Error loading label configuration: ' ME.message], 'Load Error');
-            figure(gcf); % Bring GUI back to front
+            errordlg(['Error loading configuration: ' ME.message], 'Load Error');
+            figure(gcf);
         end
     end
 
-    % Load last label configuration callback
+    % Load last label configuration / queue callback
     function load_last_label_config_callback(~,~)
         try
-            if ~check_last_label_config()
-                msgbox('No previous label configuration found. Use "Save Label Config" first to create a saved configuration.', 'No Previous Config', 'warn');
-                figure(gcf); % Bring GUI back to front
+            % Try the queue file first, then fall back to single config
+            plugin_dir = fileparts(fileparts(mfilename('fullpath')));
+            queue_file = fullfile(plugin_dir, 'cache', 'last_label_queue.mat');
+            
+            if exist(queue_file, 'file')
+                result = load_label_config(queue_file);
+                figure(gcf);
+            elseif check_last_label_config()
+                result = load_label_config('last_label_config.mat');
+                figure(gcf);
+            else
+                msgbox('No previous configuration found. Save a configuration or queue first.', 'No Previous Config', 'warn');
+                figure(gcf);
                 return;
             end
             
-            config = load_label_config('last_label_config.mat');
-            apply_label_config_to_gui(config);
-            msgbox('Last label configuration loaded successfully!', 'Load Complete', 'help');
-            figure(gcf); % Bring GUI back to front
+            if isempty(result), return; end
+            handle_loaded_config(result);
         catch ME
-            errordlg(['Error loading last label configuration: ' ME.message], 'Load Error');
-            figure(gcf); % Bring GUI back to front
+            errordlg(['Error loading previous configuration: ' ME.message], 'Load Error');
+            figure(gcf);
         end
+    end
+
+    % Shared helper: apply a loaded config (single struct or queue cell array) to the GUI
+    function handle_loaded_config(result)
+        if iscell(result)
+            % Queue — restore all labels to pending_labels and refresh display
+            pending_labels = result;
+            update_queue_display();
+            msgbox(sprintf('Label queue loaded! %d label(s) added to the queue.\n\nClick "Apply All & Finish" to run them.', ...
+                length(pending_labels)), 'Load Complete', 'help');
+        else
+            % Single config — populate the form
+            apply_label_config_to_gui(result);
+            msgbox('Label configuration loaded into the form.', 'Load Complete', 'help');
+        end
+        figure(gcf);
     end
 
     % Collect current label GUI settings
@@ -648,170 +668,133 @@ function [EEG, com] = pop_label_datasets(EEG)
         end
     end
 
-    % Actual label implementation - shared by both apply and finish buttons
-    function apply_label_internal(finishAfter)
-        % Check if any region is selected
-        regionSelected = false;
-        for ii = 1:length(regionCheckboxTags)
-            if get(findobj('tag', regionCheckboxTags{ii}), 'Value') == 1
-                regionSelected = true;
-                break;
+    % -----------------------------------------------------------------------
+    % Remove the selected label from the queue
+    % -----------------------------------------------------------------------
+    function remove_selected_label(~,~)
+        lb = findobj('tag', 'lstPendingLabels');
+        if isempty(lb) || isempty(pending_labels), return; end
+        idx = get(lb, 'Value');
+        if idx >= 1 && idx <= length(pending_labels)
+            removed = pending_labels{idx}.labelDescription;
+            pending_labels(idx) = [];
+            update_queue_display();
+            fprintf('Removed label %d ("%s") from queue. %d label(s) remaining.\n', ...
+                idx, removed, length(pending_labels));
+        end
+    end
+
+    % -----------------------------------------------------------------------
+    % Refresh the queue listbox to reflect current pending_labels
+    % -----------------------------------------------------------------------
+    function update_queue_display()
+        lb = findobj('tag', 'lstPendingLabels');
+        if isempty(lb), return; end
+        if isempty(pending_labels)
+            set(lb, 'String', {'(no labels queued)'}, 'Value', 1);
+        else
+            items = cell(1, length(pending_labels));
+            for i = 1:length(pending_labels)
+                items{i} = format_label_for_display(pending_labels{i}, i);
             end
+            curVal = get(lb, 'Value');
+            set(lb, 'String', items, 'Value', min(curVal, length(pending_labels)));
         end
+    end
+
+    % Format a queued label config as a readable string for the listbox
+    function str = format_label_for_display(cfg, idx)
+        desc = '(no description)';
+        if isfield(cfg, 'labelDescription') && ~isempty(strtrim(cfg.labelDescription))
+            desc = cfg.labelDescription;
+        end
+        regions = '(none)';
+        if isfield(cfg, 'selectedRegions') && ~isempty(cfg.selectedRegions)
+            regions = strjoin(cfg.selectedRegions, ', ');
+        end
+        str = sprintf('[%d] %s  —  Region(s): %s', idx, desc, regions);
+    end
+
+    % -----------------------------------------------------------------------
+    % Apply all queued labels to a single dataset, then close
+    % -----------------------------------------------------------------------
+    function apply_all_labels_single()
+        nLabels = length(pending_labels);
+        matched_counts = zeros(1, nLabels);
         
-        if ~regionSelected
-            errordlg('Please select at least one time-locked region to label on.', 'Error');
-            return;
-        end
-        
-        % Check if label description is provided
-        labelDescription = get(findobj('tag','edtLabelDescription'), 'String');
-        if iscell(labelDescription)
-            labelDescription = labelDescription{1};
-        end
-        if isempty(strtrim(labelDescription))
-            errordlg('Please enter a Label Description before proceeding with labeling.', 'Label Description Required');
-            return;
-        end
-        
-        % Collect label configuration
-        label_config = collect_label_gui_settings();
-        if isempty(label_config)
-            return; % Error occurred in collection
-        end
-        
+        h = waitbar(0, 'Applying labels...', 'Name', 'Eye-Tracking Event Labeling');
         try
-            % Handle batch mode
-            if batch_mode
-                % Detect existing labels in first dataset to set proper starting count
-                if current_batch_label_count == 0
-                    first_dataset = pop_loadset('filename', batchFilePaths{1});
-                    if isfield(first_dataset, 'eyesort_label_count') && ~isempty(first_dataset.eyesort_label_count)
-                        current_batch_label_count = first_dataset.eyesort_label_count;
-                    end
+            for qi = 1:nLabels
+                desc = '';
+                if isfield(pending_labels{qi}, 'labelDescription')
+                    desc = pending_labels{qi}.labelDescription;
                 end
-                % Increment label count for batch processing
-                current_batch_label_count = current_batch_label_count + 1;
-                
-                % Apply label to all datasets in batch
-                [processed_count, batch_com] = batch_apply_labels_with_count(batchFilePaths, batchFilenames, outputDir, label_config, current_batch_label_count);
-                
-                if finishAfter
-                    % Clean up temporary files
-                    cleanup_temp_files(batchFilePaths);
-                    
-                    % Clear batch mode after processing (keep output dir for BDF generation)
-                    evalin('base', 'clear eyesort_batch_file_paths eyesort_batch_filenames eyesort_batch_mode');
-                    
-                    com = sprintf('EEG = pop_label_datasets(EEG); %% Batch labeling completed with %d labels applied', current_batch_label_count);
-                    
-                    % Show completion message with total events processed and WAIT for user acknowledgment
-                    total_events_msg = sprintf('Batch labeling complete!\n\n%d datasets processed with %d labels applied.\n\nAll datasets are ready for BDF generation.', length(batchFilePaths), current_batch_label_count);
-                    h_msg = msgbox(total_events_msg, 'Batch Complete');
-                    waitfor(h_msg); % Wait for user to close the message box
-                    
-                    current_batch_label_count = 0; % Reset label count AFTER showing message
-                    uiresume(gcf);
-                    close(gcf);
-                    return; % Add missing return to prevent further execution
-                    
-                else
-                    % Show progress message but keep GUI open
-                    msgbox(sprintf('Label %02d applied to all %d datasets!\n\nYou can now configure and apply another label.', current_batch_label_count, length(batchFilePaths)), 'Batch Label Applied', 'help');
-                    
-                    % Reset GUI for next label
-                    reset_gui_for_next_label();
+                waitbar(qi / nLabels, h, sprintf('Applying label %d of %d: %s', qi, nLabels, desc));
+                label_params = convert_config_to_params_gui(pending_labels{qi});
+                if ~isempty(saved_conflict_resolution)
+                    label_params = [label_params, {'conflictResolution', saved_conflict_resolution}];
                 end
-                return;
-            end
-            
-            % Single dataset mode - existing logic
-            % Convert configuration to parameters for core function
-            label_params = convert_config_to_params_gui(label_config);
-            
-            % Apply the label using the core function
-            [labeledEEG, label_com] = label_datasets_core(EEG, label_params{:});
-            
-            % Update the EEG variable directly
-            EEG = labeledEEG;
-            
-            % Auto-save current label configuration for future use
-            try
-                    save_label_config(label_config, 'last_label_config.mat');
-            catch
-                % Don't fail the main process if auto-save fails
-                fprintf('Note: Could not auto-save label configuration (this is not critical)\n');
-            end
-            
-            assignin('base', 'EEG', labeledEEG);
-            com = label_com;
-            
-            % Auto-save if output directory is set (single dataset mode)
-            if finishAfter
-                try
-                    outputDir = evalin('base', 'eyesort_single_output_dir');
-                    if ~isempty(outputDir)
-                        if isfield(labeledEEG, 'filename') && ~isempty(labeledEEG.filename)
-                            [~, name, ~] = fileparts(labeledEEG.filename);
-                        else
-                            name = 'dataset';
-                        end
-                        output_path = fullfile(outputDir, [name '_labeled.set']);
-                        pop_saveset(labeledEEG, 'filename', output_path, 'savemode', 'twofiles');
-                        fprintf('Auto-saved labeled dataset to: %s\n', output_path);
-                    end
-                catch
-                    % No output dir set - shouldn't happen but handle gracefully
-                    warning('Could not auto-save: output directory not found');
+                [EEG, label_com, chosen] = label_datasets_core(EEG, label_params{:});
+                com = label_com;
+                if ~isempty(chosen)
+                    saved_conflict_resolution = chosen;
                 end
-            end
-            
-            % Display a message box with label results
-            if labeledEEG.eyesort_last_label_matched_count > 0
-                msgStr = sprintf(['Label applied successfully!\n\n',...
-                                'Identified %d events matching your label criteria.\n\n',...
-                                'These events have been labeled with a 6-digit code: CCRRFF\n',...
-                                'Where: CC = condition code, RC = region code, LC = label code\n\n',...
-                                '%s'],...
-                                labeledEEG.eyesort_last_label_matched_count, ...
-                                iif(finishAfter, 'Labeling complete!', 'You can now apply another label or click Finish when done.'));
-                
-                hMsg = msgbox(msgStr, 'Label Applied', 'help');
-            else
-                % Special message for when no events were found
-                msgStr = sprintf(['WARNING: Label applied, but NO EVENTS matched your criteria!\n\n',...
-                                'This could be because:\n',...
-                                '1. The label criteria are too restrictive\n',...
-                                '2. There is a mismatch between expected event fields and actual data\n',...
-                                '3. The events that would match already have label codes from a previous label\n\n',...
-                                'Consider:\n',...
-                                '- Relaxing your criteria\n',...
-                                '- Checking for conflicts with existing labels\n',...
-                                '- Verifying your dataset contains the expected fields\n\n',...
-                                '%s'],...
-                                iif(finishAfter, 'Labeling complete!', 'You can modify your label settings and try again.'));
-                
-                hMsg = msgbox(msgStr, 'No Events Found', 'warn');
-            end
-            
-            hBtn = findobj(hMsg, 'Type', 'UIControl', 'Style', 'pushbutton');
-            if ~isempty(hBtn)
-                set(hBtn, 'FontWeight', 'bold', 'FontSize', 10);
-            end
-            
-            % Wait for user to click OK instead of auto-closing
-            waitfor(hMsg);
-            
-            if finishAfter
-                uiresume(gcf);  % Resume execution to let uiwait finish
-                close(gcf);
-            else
-                % Reset the GUI for next label
-                reset_gui_for_next_label();
+                matched_counts(qi) = EEG.eyesort_last_label_matched_count;
+                assignin('base', 'EEG', EEG);
             end
         catch ME
-            errordlg(['Error applying label: ' ME.message], 'Error');
+            delete(h);
+            rethrow(ME);
         end
+        delete(h);
+        
+        % Auto-save the queue so it can be reloaded next session
+        try
+            save_label_config(pending_labels, 'last_label_queue.mat');
+        catch
+            fprintf('Note: Could not auto-save label queue.\n');
+        end
+        
+        % Auto-save labeled dataset if output directory is configured
+        try
+            outputDir_single = evalin('base', 'eyesort_single_output_dir');
+            if ~isempty(outputDir_single)
+                if isfield(EEG, 'filename') && ~isempty(EEG.filename)
+                    [~, name, ~] = fileparts(EEG.filename);
+                else
+                    name = 'dataset';
+                end
+                output_path = fullfile(outputDir_single, [name '_labeled.set']);
+                pop_saveset(EEG, 'filename', output_path, 'savemode', 'twofiles');
+                fprintf('Auto-saved labeled dataset to: %s\n', output_path);
+            end
+        catch
+            % No output dir set — skip silently
+        end
+        
+        % Build a per-label summary for the completion message
+        summaryLines = cell(1, nLabels);
+        for qi = 1:nLabels
+            desc = '';
+            if isfield(pending_labels{qi}, 'labelDescription')
+                desc = pending_labels{qi}.labelDescription;
+            end
+            if matched_counts(qi) > 0
+                summaryLines{qi} = sprintf('  Label %02d (%s): %d event(s) matched', qi, desc, matched_counts(qi));
+            else
+                summaryLines{qi} = sprintf('  Label %02d (%s): WARNING — 0 events matched', qi, desc);
+            end
+        end
+        
+        summaryStr = sprintf(['Labeling complete!\n\n%d label(s) applied:\n%s\n\n' ...
+            'Events have been labeled with 6-digit codes (CCRRLL).\n' ...
+            'CC = condition, RR = region, LL = label'], ...
+            nLabels, strjoin(summaryLines, '\n'));
+        hMsg = msgbox(summaryStr, 'Labeling Complete', 'help');
+        waitfor(hMsg);
+        
+        uiresume(gcf);
+        close(gcf);
     end
 
     % Helper function to reset GUI for next label
@@ -831,36 +814,107 @@ function [EEG, com] = pop_label_datasets(EEG)
             set(findobj('tag', nextRegionCheckboxTags{i}), 'Value', 0);
         end
         
+        % Reset pass type checkboxes
+        for i = 1:3
+            set(findobj('tag', sprintf('chkPass%d', i)), 'Value', 0);
+        end
+
+        % Reset fixation type checkboxes
+        for i = 1:5
+            set(findobj('tag', sprintf('chkFixType%d', i)), 'Value', 0);
+        end
+
+        % Reset saccade direction checkboxes
+        for i = 1:2
+            set(findobj('tag', sprintf('chkSaccadeIn%d', i)), 'Value', 0);
+            set(findobj('tag', sprintf('chkSaccadeOut%d', i)), 'Value', 0);
+        end
+
         % Reset the label description
         set(findobj('tag','edtLabelDescription'), 'String', '');
     end
 
-    % Batch apply labels with proper label count tracking
-    function [processed_count, com] = batch_apply_labels_with_count(filePaths, fileNames, outputDir, config, labelNum)
+    % -----------------------------------------------------------------------
+    % Apply all queued labels to all batch datasets, then close
+    % -----------------------------------------------------------------------
+    function apply_all_labels_batch()
+        % Determine the starting label count from the first dataset
+        if current_batch_label_count == 0
+            first_ds = pop_loadset('filename', batchFilePaths{1});
+            if isfield(first_ds, 'eyesort_label_count') && ~isempty(first_ds.eyesort_label_count)
+                current_batch_label_count = first_ds.eyesort_label_count;
+            end
+            clear first_ds;
+        end
+        
+        % Generate a unique summary filename for this session
+        session_idx = 1;
+        while exist(fullfile(outputDir, sprintf('eyesort_labeling_summary_%03d.csv', session_idx)), 'file')
+            session_idx = session_idx + 1;
+        end
+        session_summary_file = fullfile(outputDir, sprintf('eyesort_labeling_summary_%03d.csv', session_idx));
+        
+        % Apply each queued label to all datasets in sequence.
+        % saved_conflict_resolution threads the user's "remember" choice across
+        % all labels and all datasets so the conflict dialog never repeats.
+        for qi = 1:length(pending_labels)
+            current_batch_label_count = current_batch_label_count + 1;
+            [~, ~, saved_conflict_resolution] = batch_apply_labels_with_count( ...
+                batchFilePaths, batchFilenames, outputDir, ...
+                pending_labels{qi}, current_batch_label_count, saved_conflict_resolution, session_summary_file);
+        end
+        
+        % Auto-save the queue for next session
+        try
+            save_label_config(pending_labels, 'last_label_queue.mat');
+        catch
+            fprintf('Note: Could not auto-save label queue.\n');
+        end
+        
+        % Clean up and close
+        cleanup_temp_files(batchFilePaths);
+        evalin('base', 'clear eyesort_batch_file_paths eyesort_batch_filenames eyesort_batch_mode');
+        
+        com = sprintf('EEG = pop_label_datasets(EEG); %% Batch labeling completed with %d labels applied', current_batch_label_count);
+        
+        total_events_msg = sprintf(['Batch labeling complete!\n\n%d dataset(s) processed with %d label(s) applied.\n\n' ...
+            'All datasets are ready for BDF generation.'], length(batchFilePaths), current_batch_label_count);
+        h_msg = msgbox(total_events_msg, 'Batch Complete');
+        waitfor(h_msg);
+        
+        current_batch_label_count = 0;
+        uiresume(gcf);
+        close(gcf);
+    end
+
+    % Batch apply a single label config to all datasets (called in a loop by apply_all_labels_batch)
+    function [processed_count, com, resolvedConflictResolution] = batch_apply_labels_with_count(filePaths, fileNames, outputDir, config, labelNum, conflictResolution, summary_file)
+        if nargin < 6, conflictResolution = ''; end
+        if nargin < 7, summary_file = fullfile(outputDir, 'eyesort_labeling_summary_001.csv'); end
         processed_count = 0;
         com = '';
+        resolvedConflictResolution = conflictResolution;
+        summary_rows = {};
         
         % Create a progress bar
         h = waitbar(0, sprintf('Applying label %02d to batch datasets...', labelNum), 'Name', 'Batch Processing');
         
         try
             for i = 1:length(filePaths)
-                waitbar(i/length(filePaths), h, sprintf('Processing %d of %d: %s (Label %02d)', i, length(filePaths), fileNames{i}, labelNum));
+                waitbar(i/length(filePaths), h, sprintf('Processing %d of %d: %s (Label %02d)', i, length(filePaths), strrep(fileNames{i}, '_', ' '), labelNum));
                 
                 try
                     % Generate clean filename once at the start
                     [~, fileName, ~] = fileparts(filePaths{i});
                     % Remove common processing suffixes and temp indicators
                     cleanFileName = regexprep(fileName, '(_temp|_textia|_processed|_labeled)+', '');
-                    cleanFileName = regexprep(cleanFileName, '_+', '_'); % Remove multiple underscores  
-                    cleanFileName = regexprep(cleanFileName, '^_|_$', ''); % Remove leading/trailing underscores
+                    cleanFileName = regexprep(cleanFileName, '_+', '_');
+                    cleanFileName = regexprep(cleanFileName, '^_|_$', '');
                     
-                    % For first label, load from original path
-                    % For subsequent labels, load from output directory (previously labeled version)
+                    % For label 1 load from original path; subsequent labels from output dir
                     if labelNum == 1
                         tempEEG = pop_loadset('filename', filePaths{i});
                     else
-                        % Load the previously labeled version using the same clean filename
                         previous_file = fullfile(outputDir, [cleanFileName '_processed.set']);
                         if exist(previous_file, 'file')
                             tempEEG = pop_loadset('filename', previous_file);
@@ -870,11 +924,10 @@ function [EEG, com] = pop_label_datasets(EEG)
                         end
                     end
                     
-                    % CRITICAL: Preserve existing label count for previously labeled datasets
+                    % Preserve existing label count
                     if ~isfield(tempEEG, 'eyesort_label_count')
-                        tempEEG.eyesort_label_count = labelNum - 1; % Will be incremented by core function
+                        tempEEG.eyesort_label_count = labelNum - 1;
                     end
-                    % For previously labeled datasets, keep existing count (will be incremented by core function)
                     
                     % Verify dataset has required fields for labeling
                     if ~isfield(tempEEG, 'eyesort_field_names') || isempty(tempEEG.eyesort_field_names)
@@ -882,47 +935,64 @@ function [EEG, com] = pop_label_datasets(EEG)
                         continue;
                     end
                     
-                    % Convert configuration to parameters
+                    % Convert configuration to parameters, include conflict resolution if set
                     label_params = convert_config_to_params_gui(config);
-                    
-                    % Auto-save current label configuration (only once, on first dataset)
-                    if i == 1
-                        try
-                            save_label_config(config, 'last_label_config.mat');
-                            fprintf('Auto-saved label configuration to last_label_config.mat\n');
-                        catch ME
-                            fprintf('Warning: Could not auto-save label configuration: %s\n', ME.message);
-                        end
+                    if ~isempty(conflictResolution)
+                        label_params = [label_params, {'conflictResolution', conflictResolution}];
                     end
                     
-                    % Apply the label
-                    [labeledEEG, ~] = label_datasets_core(tempEEG, label_params{:});
+                    % Apply the label; capture any "remember" conflict choice so it
+                    % propagates to subsequent files in this batch run.
+                    [labeledEEG, ~, newResolution] = label_datasets_core(tempEEG, label_params{:});
+                    if ~isempty(newResolution)
+                        resolvedConflictResolution = newResolution;
+                        conflictResolution = newResolution;
+                    end
+                    
+                    % Capture matched event count before clearing
+                    matched_count = 0;
+                    if isfield(labeledEEG, 'eyesort_last_label_matched_count')
+                        matched_count = labeledEEG.eyesort_last_label_matched_count;
+                    end
                     
                     % Save with consistent clean name
                     output_path = fullfile(outputDir, [cleanFileName '_processed.set']);
                     pop_saveset(labeledEEG, 'filename', output_path, 'savemode', 'twofiles');
                     
-                    % Clear variables to free memory and prevent storage bloat
                     clear tempEEG labeledEEG;
-                    % Force MATLAB to clean up memory (if available)
-                    try
-                        pack;
-                    catch
-                        % pack not available in this MATLAB version, skip
-                    end
+                    try; pack; catch; end
                     
                     processed_count = processed_count + 1;
-                    fprintf('Successfully processed dataset %d/%d: %s with label %02d\n', processed_count, length(filePaths), cleanFileName, labelNum);
+                    fprintf('Processed %d/%d: %s with label %02d\n', processed_count, length(filePaths), cleanFileName, labelNum);
+                    
+                    % Accumulate summary row
+                    label_desc = '';
+                    if isfield(config, 'labelDescription'), label_desc = config.labelDescription; end
+                    summary_rows{end+1} = sprintf('%s,Label %02d,%s,%d', cleanFileName, labelNum, label_desc, matched_count);
                     
                 catch ME
                     warning('Failed to process dataset %s: %s', filePaths{i}, ME.message);
                 end
             end
             
-            % Close progress bar
             delete(h);
-            
             com = sprintf('EEG = pop_label_datasets(EEG); %% Applied label %02d to %d datasets', labelNum, processed_count);
+            
+            % Write/append summary rows to the session CSV log
+            if ~isempty(summary_rows)
+                write_header = ~exist(summary_file, 'file');
+                fid = fopen(summary_file, 'a');
+                if fid ~= -1
+                    if write_header
+                        fprintf(fid, 'Dataset,Label,Description,EventCount\n');
+                    end
+                    for r = 1:length(summary_rows)
+                        fprintf(fid, '%s\n', summary_rows{r});
+                    end
+                    fclose(fid);
+                    fprintf('Summary appended to: %s\n', summary_file);
+                end
+            end
             
         catch ME
             if exist('h', 'var') && ishandle(h)
@@ -1036,12 +1106,4 @@ function [EEG, com] = pop_label_datasets(EEG)
         end
     end
 
-    % Helper function to create an inline if statement (ternary operator)
-    function result = iif(condition, trueVal, falseVal)
-        if condition
-            result = trueVal;
-        else
-            result = falseVal;
-        end
-    end
 end

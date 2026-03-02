@@ -21,7 +21,9 @@ Icon
 *.asv
 *.m~
 *.mex*
-*.mat
+
+# Auto-saved runtime state (last-used configs and queues)
+cache/
 
 # Directories potentially created on remote AFP share
 .AppleDB
