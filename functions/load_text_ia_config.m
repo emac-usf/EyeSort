@@ -37,9 +37,9 @@ function [config, loaded_filename] = load_text_ia_config(filename)
         end
         filename = fullfile(fpath, fname);
     elseif strcmp(filename, 'last_text_ia_config.mat')
-        % For last config, look in plugin root directory
+        % For last config, look in plugin cache directory
         plugin_dir = fileparts(fileparts(mfilename('fullpath')));
-        filename = fullfile(plugin_dir, filename);
+        filename = fullfile(plugin_dir, 'cache', filename);
     end
     
     try

@@ -19,32 +19,46 @@
 % Author: Brandon Snyder
 
 function save_label_config(config, filename)
-% SAVE_LABEL_CONFIG - Save label configuration to file
+% SAVE_LABEL_CONFIG - Save label configuration or queue to file
 %
 % Usage:
 %   save_label_config(config, filename)
 %
 % Inputs:
-%   config   - Label configuration structure
+%   config   - Label configuration structure (single) OR cell array of configs (queue)
 %   filename - Output filename (optional, defaults to 'last_label_config.mat')
+%
+% If config is a cell array, it is saved as a 'label_queue' variable so that
+% load_label_config can distinguish queues from single configs.
 
 if nargin < 2
     filename = 'last_label_config.mat';
 end
 
-% For last_label_config.mat, save to plugin root directory
+% Resolve special filenames to the plugin cache directory
 plugin_dir = fileparts(fileparts(mfilename('fullpath')));
-is_last_config = strcmp(filename, 'last_label_config.mat');
-if is_last_config
-    filename = fullfile(plugin_dir, filename);
+cache_dir = fullfile(plugin_dir, 'cache');
+is_named_file = ismember(filename, {'last_label_config.mat', 'last_label_queue.mat'});
+if is_named_file
+    if ~exist(cache_dir, 'dir')
+        mkdir(cache_dir);
+    end
+    filename = fullfile(cache_dir, filename);
 end
 
 try
-    save(filename, 'config');
-    if ~is_last_config
+    if iscell(config)
+        % Save as a queue (cell array of config structs)
+        label_queue = config; 
+        save(filename, 'label_queue');
+    else
+        % Save as a single config struct (existing behaviour)
+        save(filename, 'config');
+    end
+    if ~is_named_file
         fprintf('Label configuration saved to: %s\n', filename);
     end
 catch ME
     error('Failed to save label configuration: %s', ME.message);
 end
-end 
+end

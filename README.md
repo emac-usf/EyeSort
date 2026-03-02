@@ -75,7 +75,7 @@ Key inputs in the GUI (with defaults/placeholders):
 
 Notes and validations:
 - Region column names are matched robustly (case-insensitive; with/without `$`), and helpful errors are shown when missing
-- You can Save/Load your Text IA configuration (`*.mat`) and the plugin auto-saves the last-used configuration to `last_text_ia_config.mat`
+- You can Save/Load your Text IA configuration (`*.mat`) and the plugin auto-saves the last-used configuration to `cache/last_text_ia_config.mat`
 - Optional: Save intermediate dataset(s) after IA processing but before labeling. Files use `*_eyesort_ia.set`
 
 Under the hood (`functions/compute_text_based_ia.m`):
@@ -96,7 +96,7 @@ Use `EyeSort → 3. Eye-Tracking Event Labeling` (`pop_label_datasets`):
 - Select fixation type: Single, First of Multiple, Second, Subsequent, Last in Region
 - Select saccade direction In and Out: Forward or Backward
 - Enter a human-readable Label Description (used later for BDF descriptions)
-- Save/Load label configurations (`*.mat`); last-used config is auto-saved to `last_label_config.mat`
+- Save/Load label configurations (`*.mat`); last-used config is auto-saved to `cache/last_label_config.mat`
 
 Behavior and outputs:
 - Each applied label increments a label counter and rewrites matching event `type` values as a 6-digit code: `CCRRLL`
@@ -130,9 +130,9 @@ For fully scripted pipelines, see `functions/eyesort_batch_process.m` for an exa
 
 ### Configuration files
 
-- Text IA configs: `Save Configuration`/`Load Configuration` in the Text IA GUI; last-used auto-saved to `last_text_ia_config.mat`
-- Label configs: `Save Label Configuration`/`Load Label Configuration` in the Labeling GUI; last-used auto-saved to `last_label_config.mat`
-- You can store configs anywhere; EyeSort will also look for the `last_*.mat` files in the plugin directory
+- Text IA configs: `Save Configuration`/`Load Configuration` in the Text IA GUI; last-used auto-saved to `cache/last_text_ia_config.mat`
+- Label configs: `Save Label Configuration`/`Load Label Configuration` in the Labeling GUI; last-used auto-saved to `cache/last_label_config.mat`
+- You can store configs anywhere; EyeSort will also look for the `last_*.mat` files in `cache/` inside the plugin directory
 
 ### Troubleshooting
 

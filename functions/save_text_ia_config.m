@@ -42,16 +42,19 @@ function save_text_ia_config(config, filename)
     config.config_type = 'text_ia';
     
     try
-        % For last config, save only to plugin root directory
         plugin_dir = fileparts(fileparts(mfilename('fullpath')));
+        cache_dir = fullfile(plugin_dir, 'cache');
+        if ~exist(cache_dir, 'dir')
+            mkdir(cache_dir);
+        end
         if strcmp(filename, 'last_text_ia_config.mat')
-            save(fullfile(plugin_dir, filename), 'config');
+            save(fullfile(cache_dir, filename), 'config');
         else
             save(filename, 'config');
             fprintf('Text IA configuration saved to: %s\n', filename);
             
-            % Also save as "last_text_ia_config.mat" for quick access in plugin root
-            save(fullfile(plugin_dir, 'last_text_ia_config.mat'), 'config');
+            % Also save as "last_text_ia_config.mat" for quick access in cache directory
+            save(fullfile(cache_dir, 'last_text_ia_config.mat'), 'config');
         end
         
         % Return success (filename is already displayed in fprintf)

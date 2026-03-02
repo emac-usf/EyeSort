@@ -18,7 +18,7 @@
 
 % Author: Brandon Snyder
 
-function [labeledEEG, com] = label_datasets_core(EEG, varargin)
+function [labeledEEG, com, chosenConflictResolution] = label_datasets_core(EEG, varargin)
 % LABEL_DATASETS_CORE - Core labeling function for EEG datasets
 %
 % Usage:
@@ -53,6 +53,7 @@ function [labeledEEG, com] = label_datasets_core(EEG, varargin)
 
 % Initialize output
 com = '';
+chosenConflictResolution = '';
 
 % Check if first argument is a config file
 if ~isempty(varargin) && ischar(varargin{1}) && (endsWith(varargin{1}, '.m') || endsWith(varargin{1}, '.mat')) && exist(varargin{1}, 'file')
@@ -130,6 +131,7 @@ if ~isempty(varargin) && ischar(varargin{1}) && (endsWith(varargin{1}, '.m') || 
     items = get_config_value(config, 'items', []);
     labelCount = get_config_value(config, 'labelCount', []);
     labelDescription = get_config_value(config, 'labelDescription', '');
+    conflictResolution = get_config_value(config, 'conflictResolution', 'ask');
     
 else
     % Individual parameters method (original)
@@ -146,6 +148,7 @@ else
     addParameter(p, 'items', [], @isnumeric);
     addParameter(p, 'labelCount', [], @isnumeric);
     addParameter(p, 'labelDescription', '', @ischar);
+    addParameter(p, 'conflictResolution', 'ask', @ischar);
     
     parse(p, EEG, varargin{:});
     
@@ -161,6 +164,7 @@ else
     items = p.Results.items;
     labelCount = p.Results.labelCount;
     labelDescription = p.Results.labelDescription;
+    conflictResolution = p.Results.conflictResolution;
 end
 
 % Validate input EEG structure
@@ -236,11 +240,11 @@ end
 
 % Apply the labeling
 try
-    labeledEEG = label_dataset_internal(EEG, conditions, items, timeLockedRegions, ...
+    [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, conditions, items, timeLockedRegions, ...
                                             passOptions, prevRegions, nextRegions, ...
                                             fixationOptions, saccadeInOptions, saccadeOutOptions, labelCount, ...
                                             fixationType, fixationXField, saccadeType, ...
-                                            saccadeStartXField, saccadeEndXField, labelDescription, rtl);
+                                            saccadeStartXField, saccadeEndXField, labelDescription, rtl, conflictResolution);
     
     % Update label count and descriptions
     labeledEEG.eyesort_label_count = labelCount;
@@ -288,13 +292,21 @@ end
 
 end
 
-function labeledEEG = label_dataset_internal(EEG, conditions, items, timeLockedRegions, ...
+function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, conditions, items, timeLockedRegions, ...
                                                 passOptions, prevRegions, nextRegions, ...
                                                 fixationOptions, saccadeInOptions, ...
                                                 saccadeOutOptions, labelCount, ...
                                                 fixationType, fixationXField, saccadeType, ...
-                                                saccadeStartXField, saccadeEndXField, labelDescription, rtl)
+                                                saccadeStartXField, saccadeEndXField, labelDescription, rtl, conflictResolution)
     % Optimized internal labeling implementation with O(n) complexity
+    
+    % Initialize conflict resolution output
+    chosenConflictResolution = '';
+    
+    % Default conflict resolution to 'ask' if not provided
+    if nargin < 19 || isempty(conflictResolution)
+        conflictResolution = 'ask';
+    end
     
     % Create a copy of the EEG structure
     labeledEEG = EEG;
@@ -854,17 +866,25 @@ function labeledEEG = label_dataset_internal(EEG, conditions, items, timeLockedR
         labelStr = labelCode;
         newType = sprintf('%s%s%s', condStr, regionStr, labelStr);
         
-        % Store the original type if this is the first time we're coding this event
-        if ~isfield(evt, 'original_type')
+        % Store the original type if this is the first time we're coding this event.
+        % Also check isempty because MATLAB auto-populates the field as [] on all
+        % other struct-array elements whenever any element first receives the field.
+        if ~isfield(evt, 'original_type') || isempty(evt.original_type)
             labeledEEG.event(mm).original_type = evt.type;
         end
         
         % Check for existing code in the event
         if isfield(evt, 'eyesort_full_code') && ~isempty(evt.eyesort_full_code)
+            existingDesc = '';
+            if isfield(evt, 'bdf_label_description')
+                existingDesc = evt.bdf_label_description;
+            end
             conflictingEvents{end+1} = struct(...
                 'event_index', mm, ...
                 'existing_code', evt.eyesort_full_code, ...
+                'existing_desc', existingDesc, ...
                 'new_code', newType, ...
+                'new_desc', labelDescription, ...
                 'condition', conditionNumbers(mm), ...
                 'region', currentRegions{mm});
             continue; % Skip this event instead of overwriting
@@ -935,17 +955,33 @@ function labeledEEG = label_dataset_internal(EEG, conditions, items, timeLockedR
     
     % Handle conflicting events if any were found
     if ~isempty(conflictingEvents)
-        conflictPercentage = (length(conflictingEvents) / matchedEventCount) * 100;
+        if matchedEventCount > 0
+            conflictPercentage = (length(conflictingEvents) / matchedEventCount) * 100;
+        else
+            conflictPercentage = 100;
+        end
         
         fprintf('Warning: Found %d events with conflicting codes (%.1f%% of matched events).\n', ...
                 length(conflictingEvents), conflictPercentage);
         fprintf('These events match multiple label criteria.\n');
         
-        % Ask user whether to replace existing codes
-        choice = questdlg(sprintf(['Found %d events that already have labels but match your current filter criteria.\n\n' ...
-                                  'Do you want to replace the existing labels with the new ones?'], ...
-                                  length(conflictingEvents)), ...
-                         'Conflicting Labels Found', 'Yes', 'No', 'No');
+        % Ask user whether to replace existing codes (or use saved choice)
+        if strcmp(conflictResolution, 'yes')
+            choice = 'Yes';
+        elseif strcmp(conflictResolution, 'no')
+            choice = 'No';
+        else
+            datasetName = '';
+            if isfield(EEG, 'setname') && ~isempty(EEG.setname)
+                datasetName = EEG.setname;
+            elseif isfield(EEG, 'filename') && ~isempty(EEG.filename)
+                [~, datasetName] = fileparts(EEG.filename);
+            end
+            [choice, rememberAll] = show_conflict_dialog(conflictingEvents, datasetName);
+            if rememberAll
+                chosenConflictResolution = lower(choice);
+            end
+        end
         
         if strcmp(choice, 'Yes')
             % Replace existing codes
@@ -1063,4 +1099,132 @@ function value = get_config_value(config, field_name, default_value)
     else
         value = default_value;
     end
-end 
+end
+
+%% Helper function: show_conflict_dialog
+function [choice, rememberAll] = show_conflict_dialog(conflictingEvents, datasetName)
+    % SHOW_CONFLICT_DIALOG - Custom conflict resolution dialog with "remember" option
+    %
+    % Shows a modal dialog asking whether to replace conflicting labels,
+    % with a checkbox allowing the user to apply their choice to all future conflicts.
+    %
+    % INPUTS:
+    %   conflictingEvents - Cell array of conflict structs (event_index, existing_code, new_code, ...)
+    %   datasetName       - (optional) Name of the dataset being processed
+    %
+    % OUTPUTS:
+    %   choice     - 'Yes' to replace, 'No' to keep existing
+    %   rememberAll - true if user checked "Apply to all future conflicts"
+    
+    if nargin < 2, datasetName = ''; end
+    
+    choice = 'No';
+    rememberAll = false;
+    nConflicts = length(conflictingEvents);
+    
+    % Hide waitbars so the modal dialog is front-most and fully interactable
+    wbHandles = findobj(0, 'Tag', 'TMWWaitbar');
+    set(wbHandles, 'Visible', 'off');
+    restoreWb = onCleanup(@() set(wbHandles(ishandle(wbHandles)), 'Visible', 'on'));
+    
+    % Build a summary of unique existing→new code pairs (with descriptions)
+    % Key = "existingCode|newCode"; value = {count, existingDesc, newDesc}
+    pairMap = containers.Map('KeyType', 'char', 'ValueType', 'any');
+    for k = 1:nConflicts
+        ce = conflictingEvents{k};
+        key = sprintf('%s|%s', ce.existing_code, ce.new_code);
+        if isKey(pairMap, key)
+            entry = pairMap(key);
+            entry{1} = entry{1} + 1;
+            pairMap(key) = entry;
+        else
+            pairMap(key) = {1, ce.existing_desc, ce.new_desc};
+        end
+    end
+    pairKeys = keys(pairMap);
+    pairLines = '';
+    for k = 1:length(pairKeys)
+        parts = strsplit(pairKeys{k}, '|');
+        entry  = pairMap(pairKeys{k});
+        n      = entry{1};
+        exDesc = entry{2};
+        nwDesc = entry{3};
+        if ~isempty(exDesc)
+            exLabel = sprintf('%s (%s)', parts{1}, exDesc);
+        else
+            exLabel = parts{1};
+        end
+        if ~isempty(nwDesc)
+            nwLabel = sprintf('%s (%s)', parts{2}, nwDesc);
+        else
+            nwLabel = parts{2};
+        end
+        if n > 1
+            pairLines = [pairLines sprintf('  %s \x2192 %s  [%d events]\n', exLabel, nwLabel, n)]; %#ok<AGROW>
+        else
+            pairLines = [pairLines sprintf('  %s \x2192 %s\n', exLabel, nwLabel)]; %#ok<AGROW>
+        end
+    end
+    
+    dlgW = 560;
+    nPairLines = length(pairKeys);
+    % Height: ~20px per line (dataset name + header + pairs + footer) + wrapping buffer
+    nMsgLines  = (~isempty(datasetName)) + 2 + nPairLines + 1;
+    lineH      = 20;
+    msgH       = nMsgLines * lineH + 30;  % +30 wrapping buffer
+
+    btnH   = 38;
+    btnY   = 15;
+    chkY   = btnY + btnH + 8;
+    msgY   = chkY + 30;
+    dlgH   = msgY + msgH + 10;
+
+    if ~isempty(datasetName)
+        dlgTitle = sprintf('Conflicting Labels — %s', datasetName);
+    else
+        dlgTitle = 'Conflicting Labels Found';
+    end
+    hDlg = figure('Name', dlgTitle, 'NumberTitle', 'off', ...
+        'MenuBar', 'none', 'ToolBar', 'none', 'Resize', 'on', ...
+        'WindowStyle', 'modal', 'Position', [0 0 dlgW dlgH], ...
+        'CloseRequestFcn', @(~,~) set_and_close('No'));
+    movegui(hDlg, 'center');
+    
+    if ~isempty(datasetName)
+        headerStr = sprintf('Dataset: %s\n', datasetName);
+    else
+        headerStr = '';
+    end
+    msgStr = sprintf(['%sFound %d event(s) with conflicting labels (existing \x2192 new):\n%s\n' ...
+        'Do you want to replace the existing labels with the new ones?'], ...
+        headerStr, nConflicts, pairLines);
+    
+    uicontrol(hDlg, 'Style', 'text', 'String', msgStr, ...
+        'Position', [15 msgY dlgW-30 msgH], 'HorizontalAlignment', 'left', ...
+        'FontSize', 10);
+    
+    hChk = uicontrol(hDlg, 'Style', 'checkbox', ...
+        'String', 'Apply this choice to all future conflicts in this run', ...
+        'Position', [15 chkY dlgW-30 22], 'Value', 0, 'FontSize', 10);
+    
+    uicontrol(hDlg, 'Style', 'pushbutton', 'String', 'Yes, Replace', ...
+        'Position', [dlgW/2 - 140 btnY 125 btnH], 'FontSize', 10, ...
+        'Callback', @(~,~) set_and_close('Yes'));
+    
+    uicontrol(hDlg, 'Style', 'pushbutton', 'String', 'No, Keep Existing', ...
+        'Position', [dlgW/2 + 15 btnY 125 btnH], 'FontSize', 10, ...
+        'Callback', @(~,~) set_and_close('No'));
+    
+    uiwait(hDlg);
+    
+    function set_and_close(c)
+        choice = c;
+        if ishandle(hChk)
+            rememberAll = get(hChk, 'Value') == 1;
+        end
+        if ishandle(hDlg)
+            uiresume(hDlg);
+            delete(hDlg);
+        end
+    end
+end
