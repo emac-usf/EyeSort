@@ -767,6 +767,28 @@ function [EEG, com] = pop_label_datasets(EEG)
                 output_path = fullfile(outputDir_single, [name '_labeled.set']);
                 pop_saveset(EEG, 'filename', output_path, 'savemode', 'twofiles');
                 fprintf('Auto-saved labeled dataset to: %s\n', output_path);
+
+                % Write per-full_description CSV summary
+                if isfield(EEG, 'event') && isfield(EEG.event, 'bdf_full_description')
+                    session_idx = 1;
+                    while exist(fullfile(outputDir_single, sprintf('eyesort_labeling_summary_%03d.csv', session_idx)), 'file')
+                        session_idx = session_idx + 1;
+                    end
+                    csv_path = fullfile(outputDir_single, sprintf('eyesort_labeling_summary_%03d.csv', session_idx));
+                    allFD = {EEG.event.bdf_full_description};
+                    allFD = allFD(~cellfun(@isempty, allFD));
+                    uniqueFD = unique(allFD);
+                    fid = fopen(csv_path, 'w');
+                    if fid ~= -1
+                        fprintf(fid, 'Dataset,FullDescription,TrialCount\n');
+                        for ui = 1:length(uniqueFD)
+                            fprintf(fid, '%s,%s,%d\n', name, uniqueFD{ui}, sum(strcmp(allFD, uniqueFD{ui})));
+                        end
+                        fclose(fid);
+                        append_grand_totals(csv_path);
+                        fprintf('Summary saved to: %s\n', csv_path);
+                    end
+                end
             end
         catch
             % No output dir set — skip silently
@@ -785,11 +807,26 @@ function [EEG, com] = pop_label_datasets(EEG)
                 summaryLines{qi} = sprintf('  Label %02d (%s): WARNING — 0 events matched', qi, desc);
             end
         end
-        
-        summaryStr = sprintf(['Labeling complete!\n\n%d label(s) applied:\n%s\n\n' ...
+
+        % Build breakdown by bdf_full_description (label + condition)
+        fdLines = {};
+        if isfield(EEG, 'event') && isfield(EEG.event, 'bdf_full_description')
+            allFD = {EEG.event.bdf_full_description};
+            allFD = allFD(~cellfun(@isempty, allFD));
+            uniqueFD = unique(allFD);
+            for ui = 1:length(uniqueFD)
+                fdLines{end+1} = sprintf('  %-40s : %d trial(s)', uniqueFD{ui}, sum(strcmp(allFD, uniqueFD{ui})));
+            end
+        end
+        fdStr = '';
+        if ~isempty(fdLines)
+            fdStr = sprintf('\n\nTrials by label+condition:\n%s', strjoin(fdLines, '\n'));
+        end
+
+        summaryStr = sprintf(['Labeling complete!\n\n%d label(s) applied:\n%s%s\n\n' ...
             'Events have been labeled with 6-digit codes (CCRRLL).\n' ...
             'CC = condition, RR = region, LL = label'], ...
-            nLabels, strjoin(summaryLines, '\n'));
+            nLabels, strjoin(summaryLines, '\n'), fdStr);
         hMsg = msgbox(summaryStr, 'Labeling Complete', 'help');
         waitfor(hMsg);
         
@@ -857,13 +894,30 @@ function [EEG, com] = pop_label_datasets(EEG)
         % Apply each queued label to all datasets in sequence.
         % saved_conflict_resolution threads the user's "remember" choice across
         % all labels and all datasets so the conflict dialog never repeats.
+        all_rows = {};
         for qi = 1:length(pending_labels)
             current_batch_label_count = current_batch_label_count + 1;
-            [~, ~, saved_conflict_resolution] = batch_apply_labels_with_count( ...
+            [~, ~, saved_conflict_resolution, label_rows] = batch_apply_labels_with_count( ...
                 batchFilePaths, batchFilenames, outputDir, ...
-                pending_labels{qi}, current_batch_label_count, saved_conflict_resolution, session_summary_file);
+                pending_labels{qi}, current_batch_label_count, saved_conflict_resolution);
+            all_rows = [all_rows, label_rows];
         end
-        
+
+        % Write CSV sorted by dataset name
+        if ~isempty(all_rows)
+            ds_names = cellfun(@(r) strtok(r, ','), all_rows, 'UniformOutput', false);
+            [~, sort_idx] = sort(ds_names);
+            fid = fopen(session_summary_file, 'w');
+            if fid ~= -1
+                fprintf(fid, 'Dataset,FullDescription,TrialCount\n');
+                for r = sort_idx
+                    fprintf(fid, '%s\n', all_rows{r});
+                end
+                fclose(fid);
+            end
+        end
+        append_grand_totals(session_summary_file);
+
         % Auto-save the queue for next session
         try
             save_label_config(pending_labels, 'last_label_queue.mat');
@@ -888,13 +942,12 @@ function [EEG, com] = pop_label_datasets(EEG)
     end
 
     % Batch apply a single label config to all datasets (called in a loop by apply_all_labels_batch)
-    function [processed_count, com, resolvedConflictResolution] = batch_apply_labels_with_count(filePaths, fileNames, outputDir, config, labelNum, conflictResolution, summary_file)
+    function [processed_count, com, resolvedConflictResolution, label_rows] = batch_apply_labels_with_count(filePaths, fileNames, outputDir, config, labelNum, conflictResolution)
         if nargin < 6, conflictResolution = ''; end
-        if nargin < 7, summary_file = fullfile(outputDir, 'eyesort_labeling_summary_001.csv'); end
         processed_count = 0;
+        label_rows = {};
         com = '';
         resolvedConflictResolution = conflictResolution;
-        summary_rows = {};
         
         % Create a progress bar
         h = waitbar(0, sprintf('Applying label %02d to batch datasets...', labelNum), 'Name', 'Batch Processing');
@@ -941,6 +994,12 @@ function [EEG, com] = pop_label_datasets(EEG)
                         label_params = [label_params, {'conflictResolution', conflictResolution}];
                     end
                     
+                    % Snapshot existing descriptions before applying this label
+                    preFD = {};
+                    if isfield(tempEEG, 'event') && isfield(tempEEG.event, 'bdf_full_description')
+                        preFD = {tempEEG.event.bdf_full_description};
+                    end
+
                     % Apply the label; capture any "remember" conflict choice so it
                     % propagates to subsequent files in this batch run.
                     [labeledEEG, ~, newResolution] = label_datasets_core(tempEEG, label_params{:});
@@ -949,26 +1008,31 @@ function [EEG, com] = pop_label_datasets(EEG)
                         conflictResolution = newResolution;
                     end
                     
-                    % Capture matched event count before clearing
-                    matched_count = 0;
-                    if isfield(labeledEEG, 'eyesort_last_label_matched_count')
-                        matched_count = labeledEEG.eyesort_last_label_matched_count;
-                    end
-                    
                     % Save with consistent clean name
                     output_path = fullfile(outputDir, [cleanFileName '_processed.set']);
                     pop_saveset(labeledEEG, 'filename', output_path, 'savemode', 'twofiles');
-                    
+
+                    % Accumulate only NEWLY labeled events (exclude pre-existing descriptions)
+                    if isfield(labeledEEG, 'event') && isfield(labeledEEG.event, 'bdf_full_description')
+                        postFD = {labeledEEG.event.bdf_full_description};
+                        newlyFD = {};
+                        for ei = 1:length(postFD)
+                            pre = '';
+                            if ei <= length(preFD), pre = preFD{ei}; end
+                            if ~isempty(postFD{ei}) && ~strcmp(postFD{ei}, pre)
+                                newlyFD{end+1} = postFD{ei};
+                            end
+                        end
+                        for ufd = unique(newlyFD)
+                            label_rows{end+1} = sprintf('%s,%s,%d', cleanFileName, ufd{1}, sum(strcmp(newlyFD, ufd{1})));
+                        end
+                    end
+
                     clear tempEEG labeledEEG;
                     try; pack; catch; end
                     
                     processed_count = processed_count + 1;
                     fprintf('Processed %d/%d: %s with label %02d\n', processed_count, length(filePaths), cleanFileName, labelNum);
-                    
-                    % Accumulate summary row
-                    label_desc = '';
-                    if isfield(config, 'labelDescription'), label_desc = config.labelDescription; end
-                    summary_rows{end+1} = sprintf('%s,Label %02d,%s,%d', cleanFileName, labelNum, label_desc, matched_count);
                     
                 catch ME
                     warning('Failed to process dataset %s: %s', filePaths{i}, ME.message);
@@ -978,21 +1042,6 @@ function [EEG, com] = pop_label_datasets(EEG)
             delete(h);
             com = sprintf('EEG = pop_label_datasets(EEG); %% Applied label %02d to %d datasets', labelNum, processed_count);
             
-            % Write/append summary rows to the session CSV log
-            if ~isempty(summary_rows)
-                write_header = ~exist(summary_file, 'file');
-                fid = fopen(summary_file, 'a');
-                if fid ~= -1
-                    if write_header
-                        fprintf(fid, 'Dataset,Label,Description,EventCount\n');
-                    end
-                    for r = 1:length(summary_rows)
-                        fprintf(fid, '%s\n', summary_rows{r});
-                    end
-                    fclose(fid);
-                    fprintf('Summary appended to: %s\n', summary_file);
-                end
-            end
             
         catch ME
             if exist('h', 'var') && ishandle(h)
@@ -1104,6 +1153,41 @@ function [EEG, com] = pop_label_datasets(EEG)
             label_params{end+1} = 'labelDescription';
             label_params{end+1} = config.labelDescription;
         end
+    end
+
+    % Append grand-total rows (sum across all datasets) to an existing CSV
+    function append_grand_totals(csv_path)
+        fid = fopen(csv_path, 'r');
+        if fid == -1, return; end
+        header = fgetl(fid);
+        rows = {};
+        while ~feof(fid)
+            line = strtrim(fgetl(fid));
+            if ~isempty(line), rows{end+1} = line; end
+        end
+        fclose(fid);
+        if isempty(rows), return; end
+
+        fdMap = containers.Map('KeyType','char','ValueType','double');
+        for ri = 1:length(rows)
+            parts = strsplit(rows{ri}, ',');
+            if length(parts) >= 3
+                key = strjoin(parts(2:end-1), ',');
+                val = str2double(parts{end});
+                if isKey(fdMap, key)
+                    fdMap(key) = fdMap(key) + val;
+                else
+                    fdMap(key) = val;
+                end
+            end
+        end
+
+        fid = fopen(csv_path, 'a');
+        if fid == -1, return; end
+        for k = keys(fdMap)
+            fprintf(fid, 'TOTAL,%s,%d\n', k{1}, fdMap(k{1}));
+        end
+        fclose(fid);
     end
 
 end
