@@ -722,9 +722,18 @@ function [EEG, com] = pop_label_datasets(EEG)
         nLabels = length(pending_labels);
         matched_counts = zeros(1, nLabels);
         
+        % Determine starting label count once before the loop so it is immune
+        % to a stale or empty eyesort_label_count value in the struct
+        startLabelCount = 0;
+        if isfield(EEG, 'eyesort_label_count') && ~isempty(EEG.eyesort_label_count) && ...
+                EEG.eyesort_label_count >= 0
+            startLabelCount = EEG.eyesort_label_count;
+        end
+        
         h = waitbar(0, 'Applying labels...', 'Name', 'Eye-Tracking Event Labeling');
         try
             for qi = 1:nLabels
+                currentLabelNum = startLabelCount + qi;
                 desc = '';
                 if isfield(pending_labels{qi}, 'labelDescription')
                     desc = pending_labels{qi}.labelDescription;
@@ -734,7 +743,7 @@ function [EEG, com] = pop_label_datasets(EEG)
                 if ~isempty(saved_conflict_resolution)
                     label_params = [label_params, {'conflictResolution', saved_conflict_resolution}];
                 end
-                [EEG, label_com, chosen] = label_datasets_core(EEG, label_params{:});
+                [EEG, label_com, chosen] = label_datasets_core(EEG, label_params{:}, 'labelCount', currentLabelNum);
                 com = label_com;
                 if ~isempty(chosen)
                     saved_conflict_resolution = chosen;
@@ -764,7 +773,7 @@ function [EEG, com] = pop_label_datasets(EEG)
                 else
                     name = 'dataset';
                 end
-                output_path = fullfile(outputDir_single, [name '_labeled.set']);
+                output_path = fullfile(outputDir_single, [name '_processed.set']);
                 pop_saveset(EEG, 'filename', output_path, 'savemode', 'twofiles');
                 fprintf('Auto-saved labeled dataset to: %s\n', output_path);
 
@@ -878,7 +887,8 @@ function [EEG, com] = pop_label_datasets(EEG)
         % Determine the starting label count from the first dataset
         if current_batch_label_count == 0
             first_ds = pop_loadset('filename', batchFilePaths{1});
-            if isfield(first_ds, 'eyesort_label_count') && ~isempty(first_ds.eyesort_label_count)
+            if isfield(first_ds, 'eyesort_label_count') && ~isempty(first_ds.eyesort_label_count) && ...
+                    first_ds.eyesort_label_count >= 0
                 current_batch_label_count = first_ds.eyesort_label_count;
             end
             clear first_ds;
@@ -977,8 +987,9 @@ function [EEG, com] = pop_label_datasets(EEG)
                         end
                     end
                     
-                    % Preserve existing label count
-                    if ~isfield(tempEEG, 'eyesort_label_count')
+                    % Preserve existing label count; treat missing or empty
+                    % (e.g. saved as [] by a prior run) as if absent
+                    if ~isfield(tempEEG, 'eyesort_label_count') || isempty(tempEEG.eyesort_label_count)
                         tempEEG.eyesort_label_count = labelNum - 1;
                     end
                     
@@ -1002,7 +1013,7 @@ function [EEG, com] = pop_label_datasets(EEG)
 
                     % Apply the label; capture any "remember" conflict choice so it
                     % propagates to subsequent files in this batch run.
-                    [labeledEEG, ~, newResolution] = label_datasets_core(tempEEG, label_params{:});
+                    [labeledEEG, ~, newResolution] = label_datasets_core(tempEEG, label_params{:}, 'labelCount', labelNum);
                     if ~isempty(newResolution)
                         resolvedConflictResolution = newResolution;
                         conflictResolution = newResolution;

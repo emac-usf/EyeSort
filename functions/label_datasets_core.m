@@ -181,9 +181,9 @@ if ~isfield(EEG, 'eyesort_field_names')
     error('EEG data does not contain field name information. Please process with the Text Interest Areas function first.');
 end
 
-% Initialize label count if not provided
-if ~isfield(EEG, 'eyesort_label_count')
-EEG.eyesort_label_count = 0;
+% Initialize label count if missing or empty (e.g. saved as [] by a prior run)
+if ~isfield(EEG, 'eyesort_label_count') || isempty(EEG.eyesort_label_count)
+    EEG.eyesort_label_count = 0;
 end
 
 if isempty(labelCount)
