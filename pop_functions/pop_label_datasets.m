@@ -743,7 +743,7 @@ function [EEG, com] = pop_label_datasets(EEG)
                 if ~isempty(saved_conflict_resolution)
                     label_params = [label_params, {'conflictResolution', saved_conflict_resolution}];
                 end
-                [EEG, label_com, chosen] = label_datasets_core(EEG, label_params{:}, 'labelCount', currentLabelNum);
+                [EEG, label_com, chosen] = label_datasets_core(EEG, label_params{:}, 'labelCount', currentLabelNum, 'showRegionMap', qi == 1);
                 com = label_com;
                 if ~isempty(chosen)
                     saved_conflict_resolution = chosen;
@@ -956,7 +956,7 @@ function [EEG, com] = pop_label_datasets(EEG)
 
                         % Apply the label; capture any "remember" conflict choice so it
                         % propagates to subsequent datasets and labels in this run.
-                        [tempEEG, ~, newResolution] = label_datasets_core(tempEEG, label_params{:}, 'labelCount', labelNum);
+                        [tempEEG, ~, newResolution] = label_datasets_core(tempEEG, label_params{:}, 'labelCount', labelNum, 'showRegionMap', qi == 1);
                         if ~isempty(newResolution)
                             saved_conflict_resolution = newResolution;
                         end

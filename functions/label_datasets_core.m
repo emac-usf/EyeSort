@@ -132,6 +132,7 @@ if ~isempty(varargin) && ischar(varargin{1}) && (endsWith(varargin{1}, '.m') || 
     labelCount = get_config_value(config, 'labelCount', []);
     labelDescription = get_config_value(config, 'labelDescription', '');
     conflictResolution = get_config_value(config, 'conflictResolution', 'ask');
+    showRegionMap = get_config_value(config, 'showRegionMap', true);
     
 else
     % Individual parameters method (original)
@@ -149,6 +150,7 @@ else
     addParameter(p, 'labelCount', [], @isnumeric);
     addParameter(p, 'labelDescription', '', @ischar);
     addParameter(p, 'conflictResolution', 'ask', @ischar);
+    addParameter(p, 'showRegionMap', true, @islogical);
     
     parse(p, EEG, varargin{:});
     
@@ -165,6 +167,7 @@ else
     labelCount = p.Results.labelCount;
     labelDescription = p.Results.labelDescription;
     conflictResolution = p.Results.conflictResolution;
+    showRegionMap = p.Results.showRegionMap;
 end
 
 % Validate input EEG structure
@@ -236,7 +239,7 @@ try
                                             passOptions, prevRegions, nextRegions, ...
                                             fixationOptions, saccadeInOptions, saccadeOutOptions, labelCount, ...
                                             fixationType, fixationXField, saccadeType, ...
-                                            saccadeStartXField, saccadeEndXField, labelDescription, rtl, conflictResolution);
+                                            saccadeStartXField, saccadeEndXField, labelDescription, rtl, conflictResolution, showRegionMap);
     
     % Update label count and descriptions
     labeledEEG.eyesort_label_count = labelCount;
@@ -289,11 +292,16 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                                                 fixationOptions, saccadeInOptions, ...
                                                 saccadeOutOptions, labelCount, ...
                                                 fixationType, fixationXField, saccadeType, ...
-                                                saccadeStartXField, saccadeEndXField, labelDescription, rtl, conflictResolution)
+                                                saccadeStartXField, saccadeEndXField, labelDescription, rtl, conflictResolution, showRegionMap)
     % Optimized internal labeling implementation with O(n) complexity
     
     % Initialize conflict resolution output
     chosenConflictResolution = '';
+    
+    % Default showRegionMap to true if not provided
+    if nargin < 20 || isempty(showRegionMap)
+        showRegionMap = true;
+    end
     
     % Default conflict resolution to 'ask' if not provided
     if nargin < 19 || isempty(conflictResolution)
@@ -313,7 +321,6 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
     
     % Pre-compute the label code (always 2 digits, 01-99)
     labelCode = sprintf('%02d', labelCount);
-    fprintf('Label code for this batch: %s\n', labelCode);
     
     % Create region code mapping - map region names to 2-digit codes
     regionCodeMap = containers.Map('KeyType', 'char', 'ValueType', 'char');
@@ -342,24 +349,28 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
         end
     end
     
-    % Print the region code mapping for verification
-    fprintf('\n============ REGION CODE MAPPING ============\n');
-    if ~isempty(regionCodeMap) && regionCodeMap.Count > 0
-        for kk = 1:length(regionList)
-            if ~isempty(regionList{kk}) && ischar(regionList{kk}) && isKey(regionCodeMap, regionList{kk})
-                fprintf('  Region "%s" = Code %s\n', regionList{kk}, regionCodeMap(regionList{kk}));
+    % Print the region code mapping only once per label queue (controlled by caller)
+    if showRegionMap
+        fprintf('\n============ REGION CODE MAPPING ============\n');
+        if ~isempty(regionCodeMap) && regionCodeMap.Count > 0
+            for kk = 1:length(regionList)
+                if ~isempty(regionList{kk}) && ischar(regionList{kk}) && isKey(regionCodeMap, regionList{kk})
+                    fprintf('  Region "%s" = Code %s\n', regionList{kk}, regionCodeMap(regionList{kk}));
+                end
             end
+        else
+            fprintf('  No regions found to map\n');
         end
-    else
-        fprintf('  No regions found to map\n');
+        fprintf('=============================================\n\n');
     end
-    fprintf('=============================================\n\n');
     
     % Track events with conflicting codes
     conflictingEvents = {};
     
     % ========== PERFORMANCE OPTIMIZATION: PRE-COMPUTE ALL INDICES ==========
-    fprintf('Pre-computing event indices for optimized labeling...\n');
+    if showRegionMap
+        fprintf('Pre-computing event indices for optimized labeling...\n');
+    end
     
     % Pre-extract all event fields using bulk struct-array access (C-speed)
     nEvents = length(EEG.event);
@@ -527,7 +538,9 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
         end
     end
     
-    fprintf('Pre-computation complete. Processing %d fixation events...\n', length(fixationIndices));
+    if showRegionMap
+        fprintf('Pre-computation complete. Processing %d fixation events...\n', length(fixationIndices));
+    end
     
     % ========== OPTIMIZED LABELING LOOP ==========
     bdf_fields_initialized = false;  % Flag to track BDF field initialization
@@ -1015,6 +1028,7 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
     labeledEEG.eyesort_last_label_matched_count = matchedEventCount;
     
     % Display results
+    fprintf('Label code for this batch: %s\n', labelCode);
     if matchedEventCount == 0
         fprintf('Warning: No events matched your label criteria!\n');
     else
