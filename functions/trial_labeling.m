@@ -75,6 +75,8 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
     visitedRegions = containers.Map('KeyType', 'char', 'ValueType', 'logical');
     regionFixationCounts = containers.Map('KeyType', 'char', 'ValueType', 'double');
     previousWord = '';
+    maxVisitedRegionNum = 0;        % running max visited region number for O(1) later-region check
+    maxVisitedWordInRegion = containers.Map('KeyType', 'double', 'ValueType', 'double');
 
     % Per-region pass tracking and fixation counts within passes
     currentPassFixationCounts = containers.Map('KeyType', 'char', 'ValueType', 'double'); % Tracks fixation count in current pass
@@ -111,38 +113,52 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
     % Add this flag at the initialization section (around line 20)
     hasRegressionBeenFound = containers.Map('KeyType', 'double', 'ValueType', 'logical');
 
+    % Precompute static trigger metadata (computed once, reused every event iteration)
+    conditionTriggersNoSpace = cellfun(@(x) strrep(x, ' ', ''), conditionTriggers, 'UniformOutput', false);
+    itemTriggersNoSpace      = cellfun(@(x) strrep(x, ' ', ''), itemTriggers,      'UniformOutput', false);
+    startCodeNoSpace = strrep(startCode, ' ', '');
+    endCodeNoSpace   = strrep(endCode,   ' ', '');
+    % Precompute numeric parts of condition/item triggers for O(1) per-event matching
+    condIsNumOnly  = cellfun(@(t) ~isempty(regexp(t, '^\d+$', 'once')), conditionTriggersNoSpace);
+    condConfigNums = cellfun(@(t) regexp(t, '\d+', 'match', 'once'),    conditionTriggersNoSpace, 'UniformOutput', false);
+    itemIsNumOnly  = cellfun(@(t) ~isempty(regexp(t, '^\d+$', 'once')), itemTriggersNoSpace);
+    itemConfigNums = cellfun(@(t) regexp(t, '\d+', 'match', 'once'),    itemTriggersNoSpace,      'UniformOutput', false);
+    if useSentenceCodes
+        sentenceStartNoSpace = strrep(sentenceStartCode, ' ', '');
+        sentenceEndNoSpace   = strrep(sentenceEndCode,   ' ', '');
+    else
+        sentenceStartNoSpace = '';
+        sentenceEndNoSpace   = '';
+    end
+
     % Event processing loop
     for iEvt = 1:length(EEG.event)
         eventType = EEG.event(iEvt).type;
         if isnumeric(eventType)
             eventType = num2str(eventType);
         end
-        
-        % Debug trigger detection
-        if startsWith(eventType, 'S')
-            fprintf('Found trigger: %s\n', eventType);
-        end
 
-        % Remove spaces from event type and triggers for comparison
+        % Remove spaces from event type; extract numeric part once for trigger matching
         eventTypeNoSpace = strrep(eventType, ' ', '');
-        conditionTriggersNoSpace = cellfun(@(x) strrep(x, ' ', ''), conditionTriggers, 'UniformOutput', false);
-        itemTriggersNoSpace = cellfun(@(x) strrep(x, ' ', ''), itemTriggers, 'UniformOutput', false);
-        
+        eventNum = regexp(eventTypeNoSpace, '\d+', 'match', 'once');
+
         %%%%%%%%%%%%%%%   
         % Trial start %
         %%%%%%%%%%%%%%% 
         % This section is responsible for resetting the trial-level tracking variables
-        if flexibleTriggerMatch(eventTypeNoSpace, strrep(startCode, ' ', ''))
+        if flexibleTriggerMatch(eventTypeNoSpace, startCodeNoSpace)
             currentTrial = currentTrial + 1;
             hasRegressionBeenFound(currentTrial) = false;  % Initialize flag for new trial
-            % Reset word and region tracking for new tria
-            visitedWords = containers.Map('KeyType', 'char', 'ValueType', 'logical');
-            wordFixationCounts = containers.Map('KeyType', 'char', 'ValueType', 'double');
-            visitedRegions = containers.Map('KeyType', 'char', 'ValueType', 'logical');
-            regionFixationCounts = containers.Map('KeyType', 'char', 'ValueType', 'double');
+            % Reset word and region tracking for new trial
+            visitedWords          = containers.Map('KeyType', 'char',   'ValueType', 'logical');
+            wordFixationCounts    = containers.Map('KeyType', 'char',   'ValueType', 'double');
+            visitedRegions        = containers.Map('KeyType', 'char',   'ValueType', 'logical');
+            regionFixationCounts  = containers.Map('KeyType', 'char',   'ValueType', 'double');
+            maxVisitedRegionNum   = 0;
+            maxVisitedWordInRegion = containers.Map('KeyType', 'double', 'ValueType', 'double');
             % Reset pass tracking variables
             currentPassFixationCounts = containers.Map('KeyType', 'char', 'ValueType', 'double');
-            regionPassMap = containers.Map('KeyType', 'char', 'ValueType', 'double');  % Per-region pass tracking
+            regionPassMap             = containers.Map('KeyType', 'char', 'ValueType', 'double');
             lastRegionVisited = '';
             previousWord = '';
             sentenceActive = ~useSentenceCodes;  % Reset sentence state for new trial
@@ -161,51 +177,43 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
             inEndRegion = false;
             endRegionFixationCount = 0;
             endRegionFixations = [];
-        
+
             % Reset trial-level item and condition numbers
             currentItem = [];
             currentCond = [];
             sentenceActive = ~useSentenceCodes;
-        
-        % Check for condition trigger
-        elseif any(cellfun(@(x) flexibleTriggerMatch(eventTypeNoSpace, x), conditionTriggersNoSpace))
-            % Extract the numeric value from the trigger (e.g., '224' from 'S224')
-            currentCond = str2double(regexp(eventTypeNoSpace, '\d+', 'match', 'once'));
-            fprintf('Setting condition to %d from trigger %s\n', currentCond, eventType);
+
+        % Check for condition trigger (vectorized: exact match OR numeric part match)
+        elseif any(strcmp(eventTypeNoSpace, conditionTriggersNoSpace)) || ...
+               (~isempty(eventNum) && any(condIsNumOnly & strcmp(eventNum, condConfigNums)))
+            currentCond = str2double(eventNum);
             EEG.event(iEvt).condition_number = currentCond;
-        
-        % Check for item trigger
-        elseif any(cellfun(@(x) flexibleTriggerMatch(eventTypeNoSpace, x), itemTriggersNoSpace))
-            % Extract the numeric value from the trigger (e.g., '39' from 'S39')
-            currentItem = str2double(regexp(eventTypeNoSpace, '\d+', 'match', 'once'));
-            fprintf('Setting item to %d from trigger %s\n', currentItem, eventType);
+
+        % Check for item trigger (vectorized: exact match OR numeric part match)
+        elseif any(strcmp(eventTypeNoSpace, itemTriggersNoSpace)) || ...
+               (~isempty(eventNum) && any(itemIsNumOnly & strcmp(eventNum, itemConfigNums)))
+            currentItem = str2double(eventNum);
             EEG.event(iEvt).item_number = currentItem;
-        
+
         % Check for sentence start/end codes
         elseif useSentenceCodes
-            if flexibleTriggerMatch(eventTypeNoSpace, strrep(sentenceStartCode, ' ', ''))
+            if flexibleTriggerMatch(eventTypeNoSpace, sentenceStartNoSpace)
                 sentenceActive = true;
-                fprintf('Sentence presentation started\n');
-            elseif flexibleTriggerMatch(eventTypeNoSpace, strrep(sentenceEndCode, ' ', ''))
+            elseif flexibleTriggerMatch(eventTypeNoSpace, sentenceEndNoSpace)
                 sentenceActive = false;
-                fprintf('Sentence presentation ended\n');
             end
         end
         
         % Process fixation events
         if startsWith(eventType, fixationType) && sentenceActive
             numFixations = numFixations + 1;
-            fprintf('Processing fixation %d, current item: %d, current condition: %d\n', ...
-                    numFixations, currentItem, currentCond);
-            
+
             if isfield(EEG.event(iEvt), 'word_boundaries')
                 numWithBoundaries = numWithBoundaries + 1;
-                fprintf('  Has word boundaries\n');
-                
+
                 if ~isempty(currentItem) && ~isempty(currentCond)
                     numProcessed = numProcessed + 1;
                     currentWord = determine_word_region(EEG.event(iEvt), fixationXField);
-                    fprintf('  Determined word: %s\n', currentWord);
                     
                     if ~isempty(currentWord)
                         % Update word-related fields
@@ -228,16 +236,8 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
                         % 2. We haven't visited any words with a higher number in the same region
                         regionKey = num2str(curr_region);
 
-                        % First, check if any later region has been visited
-                        hasVisitedLaterRegion = false;
-                        regionKeys = visitedRegions.keys();
-                        for k = 1:length(regionKeys)
-                            visitedRegionNum = str2double(regionKeys{k});
-                            if visitedRegionNum > curr_region
-                                hasVisitedLaterRegion = true;
-                                break;
-                            end
-                        end
+                        % Check if any higher-numbered region has already been visited
+                        hasVisitedLaterRegion = (maxVisitedRegionNum > curr_region);
 
                         % Only proceed with word-level checks if no later region was visited
                         isFirstPassPossible = ~hasVisitedLaterRegion;
@@ -245,17 +245,11 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
                             % Then check if this specific word hasn't been visited
                             isFirstVisitToWord = ~isKey(visitedWords, currentWord);
                             
-                            % Finally check if any later word in the same region was visited
+                            % Check if any later word in the same region was visited
                             hasVisitedLaterWord = false;
                             if isFirstVisitToWord
-                                wordKeys = visitedWords.keys();
-                                for k = 1:length(wordKeys)
-                                    [word_region, word_num] = parse_word_region(wordKeys{k});
-                                    if word_region == curr_region && word_num > curr_word_num
-                                        hasVisitedLaterWord = true;
-                                        break;
-                                    end
-                                end
+                                hasVisitedLaterWord = isKey(maxVisitedWordInRegion, curr_region) && ...
+                                                      maxVisitedWordInRegion(curr_region) > curr_word_num;
                             end
                             
                             % Only mark as first pass if all conditions are met
@@ -266,7 +260,10 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
                         end
 
                         visitedWords(currentWord) = true;
-                        
+                        if ~isKey(maxVisitedWordInRegion, curr_region) || curr_word_num > maxVisitedWordInRegion(curr_region)
+                            maxVisitedWordInRegion(curr_region) = curr_word_num;
+                        end
+
                         % Get region name from the event's region fields
                         regionName = EEG.event(iEvt).(sprintf('region%d_name', curr_region));
                         
@@ -336,7 +333,10 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
                         isFirstVisit = ~isKey(visitedRegions, regionKey);
                         EEG.event(iEvt).is_first_pass_region = isFirstVisit && ~hasVisitedLaterRegion;
                         visitedRegions(regionKey) = true;
-                        
+                        if curr_region > maxVisitedRegionNum
+                            maxVisitedRegionNum = curr_region;
+                        end
+
                         % Store fixation counts
                         EEG.event(iEvt).total_fixations_in_word = wordFixationCounts(currentWord);
                         EEG.event(iEvt).total_fixations_in_region = regionFixationCounts(regionKey);
@@ -410,95 +410,109 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
         end
     end
     
-    % Mark all events in regression trials
+    % Mark all events in regression trials (vectorized)
     fprintf('Marking all events in regression trials...\n');
-    regressionTrials = keys(trialRegressionMap);
-    for i = 1:length(regressionTrials)
-        trialNum = regressionTrials{i};
-        if trialRegressionMap(trialNum)
-            for k = 1:length(EEG.event)
-                if EEG.event(k).trial_number == trialNum
-                    EEG.event(k).is_regression_trial = true;
-                end
-            end
-        end
+    if ~isempty(trialRegressionMap)
+        allTrialNums = [EEG.event.trial_number];
+        regrTrialNums = cell2mat(keys(trialRegressionMap));
+        regrMask = ismember(allTrialNums, regrTrialNums);
+        [EEG.event(regrMask).is_regression_trial] = deal(true);
     end
     fprintf('Done marking regression trials.\n');
-    
-    % Optimized single pass to compute all region tracking fields
-    fprintf('Computing previous_fixation_region, next_fixation_region, next_region_visited, and last_region_visited fields...\n');
-    for iTrial = 1:max([EEG.event.trial_number])
-        % Get all fixation events for this trial (compute once per trial)
-        trialFixations = find([EEG.event.trial_number] == iTrial & startsWith({EEG.event.type}, fixationType));
+
+    % Precompute trial-to-fixation-index lookup (single O(E) pass, reused by all trial loops)
+    allTrialNums_ev = [EEG.event.trial_number];
+    isFixMask = strncmp({EEG.event.type}, fixationType, length(fixationType));
+    maxTrialNum = max(allTrialNums_ev);
+    trialFixationsCache = cell(maxTrialNum, 1);
+    fixEventIndices = find(isFixMask & allTrialNums_ev > 0);
+    fixTrialNums_cache = allTrialNums_ev(fixEventIndices);
+    for fi = 1:length(fixEventIndices)
+        t = fixTrialNums_cache(fi);
+        trialFixationsCache{t}(end+1) = fixEventIndices(fi);
+    end
+
+    % Single pass per trial: compute region tracking fields and is_last_in_pass together
+    fprintf('Computing region tracking and pass fields...\n');
+    for iTrial = 1:maxTrialNum
+        trialFixations = trialFixationsCache{iTrial};
         numFixations = length(trialFixations);
-        
+
         if numFixations == 0
             continue;
         end
-        
-        % Pre-extract all regions for this trial to avoid repeated field access
+
+        % Pre-extract all regions for this trial to avoid repeated struct field access
         regions = cell(numFixations, 1);
         for i = 1:numFixations
             regions{i} = EEG.event(trialFixations(i)).current_region;
         end
-        
-        % Compute all four fields efficiently in single loop
+
+        % Build run structure: compress consecutive same-region fixations into runs.
+        % Allows O(R) next/last-region lookup per fixation instead of O(F) scan.
+        runRegions = {};
+        fixToRun = zeros(numFixations, 1);
+        curRun = 0;
+        prevRunRegion = [];
+        for iR = 1:numFixations
+            if curRun == 0 || ~strcmpi(regions{iR}, prevRunRegion)
+                curRun = curRun + 1;
+                runRegions{curRun} = regions{iR};
+                prevRunRegion = regions{iR};
+            end
+            fixToRun(iR) = curRun;
+        end
+        numRuns = curRun;
+
+        % Compute all fields in one loop over fixations
         for iFixIdx = 1:numFixations
             iEvt = trialFixations(iFixIdx);
             currentRegion = regions{iFixIdx};
-            
-            % Set previous_fixation_region (immediate previous fixation)
+            ri = fixToRun(iFixIdx);
+
+            % previous_fixation_region: immediate previous fixation's region
             if iFixIdx > 1
                 EEG.event(iEvt).previous_fixation_region = regions{iFixIdx-1};
             else
                 EEG.event(iEvt).previous_fixation_region = '';
             end
-            
-            % Set next_fixation_region (immediate next fixation)
+
+            % next_fixation_region: immediate next fixation's region
             if iFixIdx < numFixations
                 EEG.event(iEvt).next_fixation_region = regions{iFixIdx+1};
             else
                 EEG.event(iEvt).next_fixation_region = '';
             end
-            
-            % Set next_region_visited (next different region) with early termination
+
+            % next_region_visited: scan runs forward (O(R) instead of O(F))
             nextDifferentRegion = '';
-            for jFixIdx = iFixIdx+1:numFixations
-                if ~strcmpi(regions{jFixIdx}, currentRegion) && ~isempty(regions{jFixIdx})
-                    nextDifferentRegion = regions{jFixIdx};
-                    break;  % Early termination - stops at first different region
+            for rNext = ri+1:numRuns
+                if ~isempty(runRegions{rNext}) && ~strcmpi(runRegions{rNext}, currentRegion)
+                    nextDifferentRegion = runRegions{rNext};
+                    break;
                 end
             end
             EEG.event(iEvt).next_region_visited = nextDifferentRegion;
-            
-            % Set last_region_visited (last different region) with early termination
+
+            % last_region_visited: scan runs backward (O(R) instead of O(F))
             lastDifferentRegion = '';
-            for jFixIdx = iFixIdx-1:-1:1
-                if ~strcmpi(regions{jFixIdx}, currentRegion) && ~isempty(regions{jFixIdx})
-                    lastDifferentRegion = regions{jFixIdx};
-                    break;  % Early termination - stops at first different region
+            for rPrev = ri-1:-1:1
+                if ~isempty(runRegions{rPrev}) && ~strcmpi(runRegions{rPrev}, currentRegion)
+                    lastDifferentRegion = runRegions{rPrev};
+                    break;
                 end
             end
             EEG.event(iEvt).last_region_visited = lastDifferentRegion;
+
+            % is_last_in_pass: true if next fixation is in a different region or no next fixation
+            if iFixIdx < numFixations
+                EEG.event(iEvt).is_last_in_pass = ~strcmpi(currentRegion, regions{iFixIdx+1});
+            else
+                EEG.event(iEvt).is_last_in_pass = true;
+            end
         end
     end
-    fprintf('Done computing previous_fixation_region, next_fixation_region, next_region_visited, and last_region_visited fields.\n');
-    
-    % Fourth pass: Use next_fixation_region to pre-compute is_last_in_pass
-    fprintf('Computing is_last_in_pass field using next_fixation_region...\n');
-    for iTrial = 1:max([EEG.event.trial_number])
-        trialFixations = find([EEG.event.trial_number] == iTrial & startsWith({EEG.event.type}, fixationType));
-        
-        for i = 1:length(trialFixations)
-            iEvt = trialFixations(i);
-            currentRegion = EEG.event(iEvt).current_region;
-            nextFixRegion = EEG.event(iEvt).next_fixation_region;
-            
-            % Last in pass if: next fixation is in different region OR no next fixation
-                                    EEG.event(iEvt).is_last_in_pass = isempty(nextFixRegion) || ~strcmpi(currentRegion, nextFixRegion);
-        end
-    end
-    fprintf('Done computing is_last_in_pass field.\n');
+    fprintf('Done computing region tracking and pass fields.\n');
 end
 
 % Parses word region identifiers into region number and word number
@@ -588,15 +602,7 @@ function currentWord = determine_word_region(event, fixationXField)
         % Check if the fixation x-coordinate falls within this word's boundaries
         % bounds(1) is left edge, bounds(2) is right edge of word
         if x >= bounds(1) && x <= bounds(2)
-            % If match found, store the word identifier
             currentWord = field_names{i};
-            
-            % Debug output: print word match details
-            % Shows which word was matched and the exact coordinates
-            fprintf('  Found word %s for x=%f (bounds: %f to %f)\n', ...
-                    currentWord, x, bounds(1), bounds(2));
-            
-            % Exit loop since matching word found
             break;
         end
     end

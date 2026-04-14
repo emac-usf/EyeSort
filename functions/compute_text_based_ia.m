@@ -348,14 +348,28 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     % Create containers to store region and word boundary information
     % These maps use condition_item as keys to retrieve boundaries for specific trials
     boundaryMap = containers.Map('KeyType', 'char', 'ValueType', 'any');        % For region boundaries
-    wordBoundaryMap = containers.Map('KeyType', 'char', 'ValueType', 'any');    % For word boundaries within regions
+    wordBoundsStructMap = containers.Map('KeyType', 'char', 'ValueType', 'any'); % Precomputed word_boundaries structs (makeValidName applied once per stimulus)
     regionWordsMap = containers.Map('KeyType', 'char', 'ValueType', 'any');     % For storing actual words in each region
     conditionDescMap = struct();   % For condition descriptions (BDF)
     conditionDescLookup = containers.Map(); % String descriptions by numeric code
 
+    % Precompute resolved condition type column names (findBestColumnMatch called once, not per row)
+    if iscell(conditionTypeColName)
+        conditionColNames = conditionTypeColName;
+    else
+        conditionColNames = {conditionTypeColName};
+    end
+    resolvedCondColNames = {};
+    for colIdx = 1:length(conditionColNames)
+        [actualColName, foundCol] = findBestColumnMatch(data.Properties.VariableNames, conditionColNames{colIdx});
+        if foundCol
+            resolvedCondColNames{end+1} = actualColName;
+        end
+    end
+
     % Process each row (stimulus) in the text file
     fprintf('Processing %d rows of data...\n', height(data));
-    
+
     for iRow = 1:height(data)
         try
             % Create a unique key based on condition and item numbers
@@ -425,26 +439,22 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
             
             % Store all the calculated information for this stimulus
             boundaryMap(key) = regionBoundaries;
-            wordBoundaryMap(key) = wordBoundaries;
+            % Precompute word_boundaries as a plain struct (makeValidName called once per stimulus,
+            % not once per EEG event that references this stimulus)
+            wbStruct = struct();
+            wbKeys = wordBoundaries.keys;
+            for wIdx = 1:length(wbKeys)
+                wbStruct.(matlab.lang.makeValidName(wbKeys{wIdx})) = wordBoundaries(wbKeys{wIdx});
+            end
+            wordBoundsStructMap(key) = wbStruct;
             regionWordsMap(key) = regionWords;
             
-            % Store condition description for BDF generation
-            % Handle multiple condition columns (comma-separated)
-            if iscell(conditionTypeColName)
-                conditionColNames = conditionTypeColName;
-            else
-                conditionColNames = {conditionTypeColName};
-            end
-            
+            % Store condition description for BDF generation (using precomputed column names)
             condDescParts = {};
-            for colIdx = 1:length(conditionColNames)
-                colName = conditionColNames{colIdx};
-                [actualColName, foundCol] = findBestColumnMatch(data.Properties.VariableNames, colName);
-                if foundCol
-                    colVal = data.(actualColName)(iRow);
-                    if iscell(colVal), colVal = colVal{1}; end
-                    condDescParts{end+1} = char(string(colVal));
-                end
+            for colIdx = 1:length(resolvedCondColNames)
+                colVal = data.(resolvedCondColNames{colIdx})(iRow);
+                if iscell(colVal), colVal = colVal{1}; end
+                condDescParts{end+1} = char(string(colVal));
             end
             condDesc = strjoin(condDescParts, ' ');
             % Get condition number for numeric storage
@@ -488,29 +498,46 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     % Remove spaces from trigger codes for more flexible matching
     conditionTriggersNoSpace = cellfun(@(x) strrep(x, ' ', ''), conditionTriggers, 'UniformOutput', false);
     itemTriggersNoSpace = cellfun(@(x) strrep(x, ' ', ''), itemTriggers, 'UniformOutput', false);
+    startCodeNoSpace = strrep(startCode, ' ', '');
+    endCodeNoSpace   = strrep(endCode, ' ', '');
+
+    % Precompute numeric parts of condition/item triggers for O(1) per-event matching
+    condIsNumOnly  = cellfun(@(t) ~isempty(regexp(t, '^\d+$', 'once')), conditionTriggersNoSpace);
+    condConfigNums = cellfun(@(t) regexp(t, '\d+', 'match', 'once'),    conditionTriggersNoSpace, 'UniformOutput', false);
+    itemIsNumOnly  = cellfun(@(t) ~isempty(regexp(t, '^\d+$', 'once')), itemTriggersNoSpace);
+    itemConfigNums = cellfun(@(t) regexp(t, '\d+', 'match', 'once'),    itemTriggersNoSpace,      'UniformOutput', false);
+
+    % Precompute dynamic region field name strings (avoids repeated sprintf inside the event loop)
+    regionStartFields = arrayfun(@(r) sprintf('region%d_start', r), 1:numRegions, 'UniformOutput', false);
+    regionEndFields   = arrayfun(@(r) sprintf('region%d_end',   r), 1:numRegions, 'UniformOutput', false);
+    regionNameFields  = arrayfun(@(r) sprintf('region%d_name',  r), 1:numRegions, 'UniformOutput', false);
+    regionWordsFields = arrayfun(@(r) sprintf('region%d_words', r), 1:numRegions, 'UniformOutput', false);
 
     % Process each event in the EEG structure
     for iEvt = 1:length(EEG.event)
         eventType = EEG.event(iEvt).type;
         eventTypeNoSpace = strrep(eventType, ' ', '');
+        eventNum = regexp(eventTypeNoSpace, '\d+', 'match', 'once');
         
         % Check for trial start/end markers or trigger events
-        if flexibleTriggerMatch(eventTypeNoSpace, strrep(startCode, ' ', ''))
+        if flexibleTriggerMatch(eventTypeNoSpace, startCodeNoSpace)
             % Trial start - reset tracking variables
             trialRunning = true;
             currentItem = [];
             currentCond = [];
             lastValidKey = '';
-        elseif flexibleTriggerMatch(eventTypeNoSpace, strrep(endCode, ' ', ''))
+        elseif flexibleTriggerMatch(eventTypeNoSpace, endCodeNoSpace)
             % Trial end
             trialRunning = false;
         elseif trialRunning
-            % Check if it's an item trigger (flexible matching)
-            if any(cellfun(@(x) flexibleTriggerMatch(eventTypeNoSpace, x), itemTriggersNoSpace))
-                currentItem = str2double(regexp(eventTypeNoSpace, '\d+', 'match', 'once'));
-            % Check if it's a condition trigger (flexible matching)
-            elseif any(cellfun(@(x) flexibleTriggerMatch(eventTypeNoSpace, x), conditionTriggersNoSpace))
-                currentCond = str2double(regexp(eventTypeNoSpace, '\d+', 'match', 'once'));
+            % Check if it's an item trigger (vectorized: exact match OR numeric part match)
+            if any(strcmp(eventTypeNoSpace, itemTriggersNoSpace)) || ...
+               (~isempty(eventNum) && any(itemIsNumOnly & strcmp(eventNum, itemConfigNums)))
+                currentItem = str2double(eventNum);
+            % Check if it's a condition trigger (vectorized: exact match OR numeric part match)
+            elseif any(strcmp(eventTypeNoSpace, conditionTriggersNoSpace)) || ...
+                   (~isempty(eventNum) && any(condIsNumOnly & strcmp(eventNum, condConfigNums)))
+                currentCond = str2double(eventNum);
             end
             
             % If we have both condition and item, create a valid lookup key
@@ -532,9 +559,9 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
                 
                 % Store individual region boundaries for easier access
                 for r = 1:numRegions
-                    EEG.event(iEvt).(sprintf('region%d_start', r)) = regionBoundaries(r, 1);
-                    EEG.event(iEvt).(sprintf('region%d_end', r)) = regionBoundaries(r, 2);
-                    EEG.event(iEvt).(sprintf('region%d_name', r)) = regionNames{r};
+                    EEG.event(iEvt).(regionStartFields{r}) = regionBoundaries(r, 1);
+                    EEG.event(iEvt).(regionEndFields{r})   = regionBoundaries(r, 2);
+                    EEG.event(iEvt).(regionNameFields{r})  = regionNames{r};
                 end
                 
                 % For fixation events, determine which region they fall within
@@ -576,22 +603,13 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
             if isKey(regionWordsMap, lastValidKey)
                 regionWords = regionWordsMap(lastValidKey);
                 for r = 1:numRegions
-                    EEG.event(iEvt).(sprintf('region%d_words', r)) = regionWords.(sprintf('region%d_words', r));
+                    EEG.event(iEvt).(regionWordsFields{r}) = regionWords.(regionWordsFields{r});
                 end
             end
 
-            % Assign word boundaries if available
-            if isKey(wordBoundaryMap, lastValidKey)
-                wordBounds = struct();
-                wordKeys = wordBoundaryMap(lastValidKey).keys;
-                for j = 1:length(wordKeys)
-                    currentKey = wordKeys{j};
-                    validField = matlab.lang.makeValidName(currentKey);
-                    currentMap = wordBoundaryMap(lastValidKey);
-                    currentBounds = currentMap(currentKey);
-                    wordBounds.(validField) = currentBounds;
-                end
-                EEG.event(iEvt).word_boundaries = wordBounds;
+            % Assign word boundaries (precomputed struct, O(1) per event)
+            if isKey(wordBoundsStructMap, lastValidKey)
+                EEG.event(iEvt).word_boundaries = wordBoundsStructMap(lastValidKey);
             end
         end
     end

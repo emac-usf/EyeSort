@@ -132,6 +132,7 @@ if ~isempty(varargin) && ischar(varargin{1}) && (endsWith(varargin{1}, '.m') || 
     labelCount = get_config_value(config, 'labelCount', []);
     labelDescription = get_config_value(config, 'labelDescription', '');
     conflictResolution = get_config_value(config, 'conflictResolution', 'ask');
+    showRegionMap = get_config_value(config, 'showRegionMap', true);
     
 else
     % Individual parameters method (original)
@@ -149,6 +150,7 @@ else
     addParameter(p, 'labelCount', [], @isnumeric);
     addParameter(p, 'labelDescription', '', @ischar);
     addParameter(p, 'conflictResolution', 'ask', @ischar);
+    addParameter(p, 'showRegionMap', true, @islogical);
     
     parse(p, EEG, varargin{:});
     
@@ -165,6 +167,7 @@ else
     labelCount = p.Results.labelCount;
     labelDescription = p.Results.labelDescription;
     conflictResolution = p.Results.conflictResolution;
+    showRegionMap = p.Results.showRegionMap;
 end
 
 % Validate input EEG structure
@@ -203,27 +206,19 @@ rtl = isfield(EEG.eyesort_field_names, 'rtl') && EEG.eyesort_field_names.rtl;
 
 % Extract conditions and items if not provided
 if isempty(conditions) && isfield(EEG.event, 'condition_number')
-    condVals = zeros(1, length(EEG.event));
-    for kk = 1:length(EEG.event)
-        if isfield(EEG.event(kk), 'condition_number') && ~isempty(EEG.event(kk).condition_number)
-            condVals(kk) = EEG.event(kk).condition_number;
-        else
-            condVals(kk) = NaN;
-        end
-    end
-    conditions = unique(condVals(~isnan(condVals) & condVals > 0));
+    raw = {EEG.event.condition_number};
+    nonempty = ~cellfun(@isempty, raw);
+    condVals = zeros(1, length(raw));
+    condVals(nonempty) = cell2mat(raw(nonempty));
+    conditions = unique(condVals(condVals > 0));
 end
 
 if isempty(items) && isfield(EEG.event, 'item_number')
-    itemVals = zeros(1, length(EEG.event));
-    for kk = 1:length(EEG.event)
-        if isfield(EEG.event(kk), 'item_number') && ~isempty(EEG.event(kk).item_number)
-            itemVals(kk) = EEG.event(kk).item_number;
-        else
-            itemVals(kk) = NaN;
-        end
-    end
-    items = unique(itemVals(~isnan(itemVals) & itemVals > 0));
+    raw = {EEG.event.item_number};
+    nonempty = ~cellfun(@isempty, raw);
+    itemVals = zeros(1, length(raw));
+    itemVals(nonempty) = cell2mat(raw(nonempty));
+    items = unique(itemVals(itemVals > 0));
 end
 
 % Validate that at least one time-locked region is specified
@@ -244,7 +239,7 @@ try
                                             passOptions, prevRegions, nextRegions, ...
                                             fixationOptions, saccadeInOptions, saccadeOutOptions, labelCount, ...
                                             fixationType, fixationXField, saccadeType, ...
-                                            saccadeStartXField, saccadeEndXField, labelDescription, rtl, conflictResolution);
+                                            saccadeStartXField, saccadeEndXField, labelDescription, rtl, conflictResolution, showRegionMap);
     
     % Update label count and descriptions
     labeledEEG.eyesort_label_count = labelCount;
@@ -297,11 +292,16 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                                                 fixationOptions, saccadeInOptions, ...
                                                 saccadeOutOptions, labelCount, ...
                                                 fixationType, fixationXField, saccadeType, ...
-                                                saccadeStartXField, saccadeEndXField, labelDescription, rtl, conflictResolution)
+                                                saccadeStartXField, saccadeEndXField, labelDescription, rtl, conflictResolution, showRegionMap)
     % Optimized internal labeling implementation with O(n) complexity
     
     % Initialize conflict resolution output
     chosenConflictResolution = '';
+    
+    % Default showRegionMap to true if not provided
+    if nargin < 20 || isempty(showRegionMap)
+        showRegionMap = true;
+    end
     
     % Default conflict resolution to 'ask' if not provided
     if nargin < 19 || isempty(conflictResolution)
@@ -321,7 +321,6 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
     
     % Pre-compute the label code (always 2 digits, 01-99)
     labelCode = sprintf('%02d', labelCount);
-    fprintf('Label code for this batch: %s\n', labelCode);
     
     % Create region code mapping - map region names to 2-digit codes
     regionCodeMap = containers.Map('KeyType', 'char', 'ValueType', 'char');
@@ -334,13 +333,13 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
         end
     else
         % Extract region names safely, handling empty/missing fields
-        regionNames = {};
-        for i = 1:length(EEG.event)
-            if isfield(EEG.event(i), 'current_region') && ~isempty(EEG.event(i).current_region) && ischar(EEG.event(i).current_region)
-                regionNames{end+1} = EEG.event(i).current_region;
-            end
+        if isfield(EEG.event, 'current_region')
+            allReg = {EEG.event.current_region};
+            valid  = cellfun(@(x) ischar(x) && ~isempty(x), allReg);
+            regionList = unique(allReg(valid));
+        else
+            regionList = {};
         end
-        regionList = unique(regionNames);
     end
     
     % Map each region to a 2-digit code
@@ -350,113 +349,125 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
         end
     end
     
-    % Print the region code mapping for verification
-    fprintf('\n============ REGION CODE MAPPING ============\n');
-    if ~isempty(regionCodeMap) && regionCodeMap.Count > 0
-        for kk = 1:length(regionList)
-            if ~isempty(regionList{kk}) && ischar(regionList{kk}) && isKey(regionCodeMap, regionList{kk})
-                fprintf('  Region "%s" = Code %s\n', regionList{kk}, regionCodeMap(regionList{kk}));
+    % Print the region code mapping only once per label queue (controlled by caller)
+    if showRegionMap
+        fprintf('\n============ REGION CODE MAPPING ============\n');
+        if ~isempty(regionCodeMap) && regionCodeMap.Count > 0
+            for kk = 1:length(regionList)
+                if ~isempty(regionList{kk}) && ischar(regionList{kk}) && isKey(regionCodeMap, regionList{kk})
+                    fprintf('  Region "%s" = Code %s\n', regionList{kk}, regionCodeMap(regionList{kk}));
+                end
             end
+        else
+            fprintf('  No regions found to map\n');
         end
-    else
-        fprintf('  No regions found to map\n');
+        fprintf('=============================================\n\n');
     end
-    fprintf('=============================================\n\n');
     
     % Track events with conflicting codes
     conflictingEvents = {};
     
     % ========== PERFORMANCE OPTIMIZATION: PRE-COMPUTE ALL INDICES ==========
-    fprintf('Pre-computing event indices for optimized labeling...\n');
+    if showRegionMap
+        fprintf('Pre-computing event indices for optimized labeling...\n');
+    end
     
-    % Pre-extract all event fields for vectorized operations
+    % Pre-extract all event fields using bulk struct-array access (C-speed)
     nEvents = length(EEG.event);
-    eventTypes = cell(nEvents, 1);
-    originalTypes = cell(nEvents, 1);
-    currentRegions = cell(nEvents, 1);
-    lastRegionVisited = cell(nEvents, 1);
-    trialNumbers = zeros(nEvents, 1);
+    eventTypes        = {EEG.event.type}';
+    trialNumbers      = zeros(nEvents, 1);
     regionPassNumbers = zeros(nEvents, 1);
-    fixationInPass = zeros(nEvents, 1);
-    conditionNumbers = zeros(nEvents, 1);
-    itemNumbers = zeros(nEvents, 1);
-    
-    % Extract all fields in one pass
-    for i = 1:nEvents
-        evt = EEG.event(i);
-        eventTypes{i} = evt.type;
-        if isfield(evt, 'original_type')
-            originalTypes{i} = evt.original_type;
-        else
-            originalTypes{i} = '';
-        end
-        if isfield(evt, 'current_region')
-            currentRegions{i} = evt.current_region;
-        else
-            currentRegions{i} = '';
-        end
-        if isfield(evt, 'last_region_visited')
-            lastRegionVisited{i} = evt.last_region_visited;
-        else
-            lastRegionVisited{i} = '';
-        end
-        if isfield(evt, 'trial_number')
-            trialNumbers(i) = evt.trial_number;
-        end
-        if isfield(evt, 'region_pass_number')
-            regionPassNumbers(i) = evt.region_pass_number;
-        end
-        if isfield(evt, 'fixation_in_pass')
-            fixationInPass(i) = evt.fixation_in_pass;
-        end
-        if isfield(evt, 'condition_number')
-            conditionNumbers(i) = evt.condition_number;
-        end
-        if isfield(evt, 'item_number')
-            itemNumbers(i) = evt.item_number;
-        end
+    fixationInPass    = zeros(nEvents, 1);
+    conditionNumbers  = zeros(nEvents, 1);
+    itemNumbers       = zeros(nEvents, 1);
+
+    if isfield(EEG.event, 'original_type')
+        originalTypes = {EEG.event.original_type}';
+        originalTypes(cellfun(@isempty, originalTypes)) = {''};
+    else
+        originalTypes = repmat({''}, nEvents, 1);
     end
-    
-    % Identify fixation events (vectorized)
-    isFixation = false(nEvents, 1);
-    for i = 1:nEvents
-        if ischar(eventTypes{i}) && startsWith(eventTypes{i}, fixationType)
-            isFixation(i) = true;
-        elseif ~isempty(originalTypes{i}) && ischar(originalTypes{i}) && startsWith(originalTypes{i}, fixationType)
-            isFixation(i) = true;
-        elseif ischar(eventTypes{i}) && length(eventTypes{i}) == 6 && isfield(EEG.event(i), 'eyesort_full_code')
-            isFixation(i) = true;
-        end
+
+    if isfield(EEG.event, 'current_region')
+        currentRegions = {EEG.event.current_region}';
+        currentRegions(cellfun(@(x) ~ischar(x), currentRegions)) = {''};
+    else
+        currentRegions = repmat({''}, nEvents, 1);
     end
-    
+
+    if isfield(EEG.event, 'last_region_visited')
+        lastRegionVisited = {EEG.event.last_region_visited}';
+        lastRegionVisited(cellfun(@isempty, lastRegionVisited)) = {''};
+    else
+        lastRegionVisited = repmat({''}, nEvents, 1);
+    end
+
+    if isfield(EEG.event, 'trial_number')
+        raw = {EEG.event.trial_number};
+        nonempty = ~cellfun(@isempty, raw);
+        trialNumbers(nonempty) = cell2mat(raw(nonempty));
+    end
+    if isfield(EEG.event, 'region_pass_number')
+        raw = {EEG.event.region_pass_number};
+        nonempty = ~cellfun(@isempty, raw);
+        regionPassNumbers(nonempty) = cell2mat(raw(nonempty));
+    end
+    if isfield(EEG.event, 'fixation_in_pass')
+        raw = {EEG.event.fixation_in_pass};
+        nonempty = ~cellfun(@isempty, raw);
+        fixationInPass(nonempty) = cell2mat(raw(nonempty));
+    end
+    if isfield(EEG.event, 'condition_number')
+        raw = {EEG.event.condition_number};
+        nonempty = ~cellfun(@isempty, raw);
+        conditionNumbers(nonempty) = cell2mat(raw(nonempty));
+    end
+    if isfield(EEG.event, 'item_number')
+        raw = {EEG.event.item_number};
+        nonempty = ~cellfun(@isempty, raw);
+        itemNumbers(nonempty) = cell2mat(raw(nonempty));
+    end
+
+    % Identify fixation events using vectorized string comparison
+    fixLen     = length(fixationType);
+    isFixation = strncmp(eventTypes, fixationType, fixLen) | ...
+                 strncmp(originalTypes, fixationType, fixLen);
+    % Third condition: already-coded fixations have a 6-char CCRRLL type
+    % and the eyesort_full_code field (struct field is array-wide once set)
+    if isfield(EEG.event, 'eyesort_full_code')
+        isCharType = cellfun(@ischar, eventTypes);
+        typeLengths = cellfun(@numel, eventTypes);
+        isFixation = isFixation | (isCharType & typeLengths == 6);
+    end
+
     % Get fixation indices
     fixationIndices = find(isFixation);
-    
+
     % Extract next region visited field for all events
-    nextRegionVisited = cell(nEvents, 1);
-    for i = 1:nEvents
-        if isfield(EEG.event(i), 'next_region_visited')
-            nextRegionVisited{i} = EEG.event(i).next_region_visited;
-        else
-            nextRegionVisited{i} = '';
-        end
+    if isfield(EEG.event, 'next_region_visited')
+        nextRegionVisited = {EEG.event.next_region_visited}';
+        nextRegionVisited(cellfun(@isempty, nextRegionVisited)) = {''};
+    else
+        nextRegionVisited = repmat({''}, nEvents, 1);
     end
     
-    % Pre-compute fixation groupings by trial/region/pass
-    fixationGroups = containers.Map('KeyType', 'char', 'ValueType', 'any');
+    % Pre-compute fixation group counts and max fixation-in-pass per (trial/region/pass) key.
+    % Storing only two scalars per group instead of a growing index array eliminates
+    % the repeated copy-on-write allocations of the old end+1 pattern.
+    groupCounts = containers.Map('KeyType', 'char', 'ValueType', 'double');
+    groupMaxFIP = containers.Map('KeyType', 'char', 'ValueType', 'double');
     for i = 1:length(fixationIndices)
         idx = fixationIndices(i);
         if trialNumbers(idx) == 0 || isempty(currentRegions{idx}) || regionPassNumbers(idx) == 0
             continue;
         end
-        
         key = sprintf('%d_%s_%d', trialNumbers(idx), currentRegions{idx}, regionPassNumbers(idx));
-        if isKey(fixationGroups, key)
-            groupIndices = fixationGroups(key);
-            groupIndices(end+1) = idx;
-            fixationGroups(key) = groupIndices;
+        if isKey(groupCounts, key)
+            groupCounts(key) = groupCounts(key) + 1;
+            groupMaxFIP(key) = max(groupMaxFIP(key), fixationInPass(idx));
         else
-            fixationGroups(key) = idx;
+            groupCounts(key) = 1;
+            groupMaxFIP(key) = fixationInPass(idx);
         end
     end
     
@@ -464,33 +475,42 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
     saccadeIndices = find(strcmp(eventTypes, saccadeType));
     prevSaccadeMap = containers.Map('KeyType', 'int32', 'ValueType', 'any');
     nextSaccadeMap = containers.Map('KeyType', 'int32', 'ValueType', 'any');
-    
-    for i = 1:length(fixationIndices)
-        idx = fixationIndices(i);
-        
-        % Find previous saccade
-        prevSaccade = [];
-        for j = 1:length(saccadeIndices)
-            if saccadeIndices(j) < idx
-                prevSaccade = saccadeIndices(j);
-            else
-                break;
-            end
+
+    % Precompute trial-boundary lookups in two O(F) passes so the saccade map
+    % loop never needs inner scans over fixationIndices.
+    % prevValidTrialArr(i) = last non-zero trial number seen strictly before position i.
+    % nextValidTrialArr(i) = next non-zero trial number seen strictly after position i.
+    nFix = length(fixationIndices);
+    prevValidTrialArr = zeros(nFix, 1);
+    nextValidTrialArr = zeros(nFix, 1);
+    lastSeen = 0;
+    for k = 1:nFix
+        prevValidTrialArr(k) = lastSeen;
+        if trialNumbers(fixationIndices(k)) > 0
+            lastSeen = trialNumbers(fixationIndices(k));
         end
-        if ~isempty(prevSaccade)
-            % Only accept prev saccade if it is within the same trial.
+    end
+    lastSeen = 0;
+    for k = nFix:-1:1
+        nextValidTrialArr(k) = lastSeen;
+        if trialNumbers(fixationIndices(k)) > 0
+            lastSeen = trialNumbers(fixationIndices(k));
+        end
+    end
+
+    for i = 1:nFix
+        idx = fixationIndices(i);
+
+        % Find previous saccade: vectorized find on sorted saccadeIndices
+        jj = find(saccadeIndices < idx, 1, 'last');
+        if ~isempty(jj)
+            prevSaccade = saccadeIndices(jj);
+            % Only accept if within the same trial.
             % Skip over adjacent fixations with trial_number=0 (in-trial but unassigned
             % to a region) to find the nearest fixation with a valid trial number.
             withinTrial = true;
             if trialNumbers(idx) > 0
-                prevValidTrial = 0;
-                for k = i-1:-1:1
-                    if trialNumbers(fixationIndices(k)) > 0
-                        prevValidTrial = trialNumbers(fixationIndices(k));
-                        break;
-                    end
-                end
-                if prevValidTrial ~= trialNumbers(idx)
+                if prevValidTrialArr(i) ~= trialNumbers(idx)
                     withinTrial = false;
                 end
             end
@@ -498,29 +518,17 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                 prevSaccadeMap(idx) = prevSaccade;
             end
         end
-        
-        % Find next saccade
-        nextSaccade = [];
-        for j = 1:length(saccadeIndices)
-            if saccadeIndices(j) > idx
-                nextSaccade = saccadeIndices(j);
-                break;
-            end
-        end
-        if ~isempty(nextSaccade)
-            % Only accept next saccade if it is within the same trial.
+
+        % Find next saccade: vectorized find on sorted saccadeIndices
+        jj = find(saccadeIndices > idx, 1, 'first');
+        if ~isempty(jj)
+            nextSaccade = saccadeIndices(jj);
+            % Only accept if within the same trial.
             % Skip over adjacent fixations with trial_number=0 (in-trial but unassigned
             % to a region) to find the nearest fixation with a valid trial number.
             withinTrial = true;
             if trialNumbers(idx) > 0
-                nextValidTrial = 0;
-                for k = i+1:length(fixationIndices)
-                    if trialNumbers(fixationIndices(k)) > 0
-                        nextValidTrial = trialNumbers(fixationIndices(k));
-                        break;
-                    end
-                end
-                if nextValidTrial ~= trialNumbers(idx)
+                if nextValidTrialArr(i) ~= trialNumbers(idx)
                     withinTrial = false;
                 end
             end
@@ -530,10 +538,15 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
         end
     end
     
-    fprintf('Pre-computation complete. Processing %d fixation events...\n', length(fixationIndices));
+    if showRegionMap
+        fprintf('Pre-computation complete. Processing %d fixation events...\n', length(fixationIndices));
+    end
     
     % ========== OPTIMIZED LABELING LOOP ==========
     bdf_fields_initialized = false;  % Flag to track BDF field initialization
+    % Cache for matlab.lang.makeValidName results — the set of unique (cond,item)
+    % pairs is small, but the call fires once per matched event without caching.
+    validKeyCache = containers.Map('KeyType', 'char', 'ValueType', 'char');
     for i = 1:length(fixationIndices)
         mm = fixationIndices(i);
         evt = EEG.event(mm);
@@ -615,7 +628,7 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
             end
         end
         
-        % Fixation type labeling (optimized with pre-computed groups)
+        % Fixation type labeling (uses groupCounts / groupMaxFIP scalar maps)
         passesFixationType = false;
         if isscalar(fixationOptions)
             if fixationOptions == 0
@@ -629,9 +642,8 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                     % Fallback to group-based check
                     if trialNumbers(mm) > 0 && ~isempty(currentRegions{mm}) && regionPassNumbers(mm) > 0
                         key = sprintf('%d_%s_%d', trialNumbers(mm), currentRegions{mm}, regionPassNumbers(mm));
-                        if isKey(fixationGroups, key)
-                            groupIndices = fixationGroups(key);
-                            passesFixationType = (length(groupIndices) == 1);
+                        if isKey(groupCounts, key)
+                            passesFixationType = (groupCounts(key) == 1);
                         end
                     end
                 end
@@ -639,9 +651,8 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                 % First of multiple
                 if trialNumbers(mm) > 0 && ~isempty(currentRegions{mm}) && regionPassNumbers(mm) > 0
                     key = sprintf('%d_%s_%d', trialNumbers(mm), currentRegions{mm}, regionPassNumbers(mm));
-                    if isKey(fixationGroups, key)
-                        groupIndices = fixationGroups(key);
-                        passesFixationType = (fixationInPass(mm) == 1 && length(groupIndices) > 1);
+                    if isKey(groupCounts, key)
+                        passesFixationType = (fixationInPass(mm) == 1 && groupCounts(key) > 1);
                     end
                 end
             elseif fixationOptions == 3
@@ -653,13 +664,11 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                 if isfield(EEG.event(mm), 'is_last_in_pass')
                     passesFixationType = EEG.event(mm).is_last_in_pass;
                 else
-                    % Fallback to expensive search if field not available
+                    % Fallback to group-based check
                     if trialNumbers(mm) > 0 && ~isempty(currentRegions{mm}) && regionPassNumbers(mm) > 0
                         key = sprintf('%d_%s_%d', trialNumbers(mm), currentRegions{mm}, regionPassNumbers(mm));
-                        if isKey(fixationGroups, key)
-                            groupIndices = fixationGroups(key);
-                            maxFixInPass = max(fixationInPass(groupIndices));
-                            passesFixationType = (fixationInPass(mm) == maxFixInPass);
+                        if isKey(groupCounts, key)
+                            passesFixationType = (fixationInPass(mm) == groupMaxFIP(key));
                         end
                     end
                 end
@@ -682,22 +691,16 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                         elseif trialNumbers(mm) > 0 && ~isempty(currentRegions{mm}) && regionPassNumbers(mm) > 0
                             % Fallback to group-based check
                             key = sprintf('%d_%s_%d', trialNumbers(mm), currentRegions{mm}, regionPassNumbers(mm));
-                            if isKey(fixationGroups, key)
-                                groupIndices = fixationGroups(key);
-                                if length(groupIndices) == 1
-                                    passesFixationType = true;
-                                    break;
-                                end
+                            if isKey(groupCounts, key) && groupCounts(key) == 1
+                                passesFixationType = true;
+                                break;
                             end
                         end
                     elseif opt == 2 && trialNumbers(mm) > 0 && ~isempty(currentRegions{mm}) && regionPassNumbers(mm) > 0
                         key = sprintf('%d_%s_%d', trialNumbers(mm), currentRegions{mm}, regionPassNumbers(mm));
-                        if isKey(fixationGroups, key)
-                            groupIndices = fixationGroups(key);
-                            if fixationInPass(mm) == 1 && length(groupIndices) > 1
-                                passesFixationType = true;
-                                break;
-                            end
+                        if isKey(groupCounts, key) && fixationInPass(mm) == 1 && groupCounts(key) > 1
+                            passesFixationType = true;
+                            break;
                         end
                     elseif opt == 3 && fixationInPass(mm) == 2
                         passesFixationType = true;
@@ -711,15 +714,11 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                             passesFixationType = true;
                             break;
                         elseif trialNumbers(mm) > 0 && ~isempty(currentRegions{mm}) && regionPassNumbers(mm) > 0
-                            % Fallback to expensive search if field not available
+                            % Fallback to group-based check
                             key = sprintf('%d_%s_%d', trialNumbers(mm), currentRegions{mm}, regionPassNumbers(mm));
-                            if isKey(fixationGroups, key)
-                                groupIndices = fixationGroups(key);
-                                maxFixInPass = max(fixationInPass(groupIndices));
-                                if fixationInPass(mm) == maxFixInPass
-                                    passesFixationType = true;
-                                    break;
-                                end
+                            if isKey(groupCounts, key) && fixationInPass(mm) == groupMaxFIP(key)
+                                passesFixationType = true;
+                                break;
                             end
                         end
                     end
@@ -917,7 +916,12 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                isfield(labeledEEG, 'eyesort_condition_lookup') && ...
                conditionNumbers(mm) > 0 && itemNumbers(mm) > 0
                 key = sprintf('%d_%d', conditionNumbers(mm), itemNumbers(mm));
-                validKey = matlab.lang.makeValidName(['k_' key]);
+                if isKey(validKeyCache, key)
+                    validKey = validKeyCache(key);
+                else
+                    validKey = matlab.lang.makeValidName(['k_' key]);
+                    validKeyCache(key) = validKey;
+                end
                 condStruct = labeledEEG.eyesort_condition_descriptions;
                 if isfield(condStruct, validKey)
                     conditionNum = condStruct.(validKey); % This is numeric
@@ -1024,6 +1028,7 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
     labeledEEG.eyesort_last_label_matched_count = matchedEventCount;
     
     % Display results
+    fprintf('Label code for this batch: %s\n', labelCode);
     if matchedEventCount == 0
         fprintf('Warning: No events matched your label criteria!\n');
     else

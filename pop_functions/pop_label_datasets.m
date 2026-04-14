@@ -743,7 +743,7 @@ function [EEG, com] = pop_label_datasets(EEG)
                 if ~isempty(saved_conflict_resolution)
                     label_params = [label_params, {'conflictResolution', saved_conflict_resolution}];
                 end
-                [EEG, label_com, chosen] = label_datasets_core(EEG, label_params{:}, 'labelCount', currentLabelNum);
+                [EEG, label_com, chosen] = label_datasets_core(EEG, label_params{:}, 'labelCount', currentLabelNum, 'showRegionMap', qi == 1);
                 com = label_com;
                 if ~isempty(chosen)
                     saved_conflict_resolution = chosen;
@@ -881,37 +881,119 @@ function [EEG, com] = pop_label_datasets(EEG)
     end
 
     % -----------------------------------------------------------------------
-    % Apply all queued labels to all batch datasets, then close
+    % Apply all queued labels to all batch datasets, then close.
+    % Loop order: dataset (outer) → label (inner) → save once per dataset.
+    % This reduces disk I/O from N×L loads+saves to N loads + N saves.
     % -----------------------------------------------------------------------
     function apply_all_labels_batch()
-        % Determine the starting label count from the first dataset
+        % Determine the starting label count from the reference EEG already in
+        % memory (loaded at the top of pop_label_datasets) — no extra disk read.
         if current_batch_label_count == 0
-            first_ds = pop_loadset('filename', batchFilePaths{1});
-            if isfield(first_ds, 'eyesort_label_count') && ~isempty(first_ds.eyesort_label_count) && ...
-                    first_ds.eyesort_label_count >= 0
-                current_batch_label_count = first_ds.eyesort_label_count;
+            if isfield(EEG, 'eyesort_label_count') && ~isempty(EEG.eyesort_label_count) && ...
+                    EEG.eyesort_label_count >= 0
+                current_batch_label_count = EEG.eyesort_label_count;
             end
-            clear first_ds;
         end
-        
+
+        nLabels = length(pending_labels);
+
         % Generate a unique summary filename for this session
         session_idx = 1;
         while exist(fullfile(outputDir, sprintf('eyesort_labeling_summary_%03d.csv', session_idx)), 'file')
             session_idx = session_idx + 1;
         end
         session_summary_file = fullfile(outputDir, sprintf('eyesort_labeling_summary_%03d.csv', session_idx));
-        
-        % Apply each queued label to all datasets in sequence.
+
         % saved_conflict_resolution threads the user's "remember" choice across
         % all labels and all datasets so the conflict dialog never repeats.
         all_rows = {};
-        for qi = 1:length(pending_labels)
-            current_batch_label_count = current_batch_label_count + 1;
-            [~, ~, saved_conflict_resolution, label_rows] = batch_apply_labels_with_count( ...
-                batchFilePaths, batchFilenames, outputDir, ...
-                pending_labels{qi}, current_batch_label_count, saved_conflict_resolution);
-            all_rows = [all_rows, label_rows];
+        processed_count = 0;
+
+        h = waitbar(0, 'Batch labeling...', 'Name', 'Batch Processing');
+        try
+            for i = 1:length(batchFilePaths)
+                waitbar((i-1)/length(batchFilePaths), h, ...
+                    sprintf('Processing %d of %d: %s', i, length(batchFilePaths), ...
+                    strrep(batchFilenames{i}, '_', ' ')));
+
+                try
+                    % Compute clean filename once per dataset
+                    [~, fileName, ~] = fileparts(batchFilePaths{i});
+                    cleanFileName = regexprep(fileName, '(_temp|_textia|_processed|_labeled)+', '');
+                    cleanFileName = regexprep(cleanFileName, '_+', '_');
+                    cleanFileName = regexprep(cleanFileName, '^_|_$', '');
+
+                    % Load once from the original path
+                    tempEEG = pop_loadset('filename', batchFilePaths{i});
+
+                    % Preserve existing label count; treat missing or empty
+                    % (e.g. saved as [] by a prior run) as if absent
+                    if ~isfield(tempEEG, 'eyesort_label_count') || isempty(tempEEG.eyesort_label_count)
+                        tempEEG.eyesort_label_count = current_batch_label_count;
+                    end
+
+                    % Verify dataset has required fields for labeling
+                    if ~isfield(tempEEG, 'eyesort_field_names') || isempty(tempEEG.eyesort_field_names)
+                        warning('Dataset %s missing eyesort_field_names - skipping', cleanFileName);
+                        continue;
+                    end
+
+                    % Apply ALL labels in memory before saving
+                    for qi = 1:nLabels
+                        labelNum = current_batch_label_count + qi;
+
+                        label_params = convert_config_to_params_gui(pending_labels{qi});
+                        if ~isempty(saved_conflict_resolution)
+                            label_params = [label_params, {'conflictResolution', saved_conflict_resolution}];
+                        end
+
+                        % Snapshot existing descriptions before this label so we can
+                        % detect only the events newly labeled by this pass.
+                        preFD = {};
+                        if isfield(tempEEG, 'event') && isfield(tempEEG.event, 'bdf_full_description')
+                            preFD = {tempEEG.event.bdf_full_description};
+                        end
+
+                        % Apply the label; capture any "remember" conflict choice so it
+                        % propagates to subsequent datasets and labels in this run.
+                        [tempEEG, ~, newResolution] = label_datasets_core(tempEEG, label_params{:}, 'labelCount', labelNum, 'showRegionMap', qi == 1);
+                        if ~isempty(newResolution)
+                            saved_conflict_resolution = newResolution;
+                        end
+
+                        % Accumulate only NEWLY labeled events (exclude pre-existing descriptions)
+                        if isfield(tempEEG, 'event') && isfield(tempEEG.event, 'bdf_full_description')
+                            postFD = {tempEEG.event.bdf_full_description};
+                            preExpanded = repmat({''}, size(postFD));
+                            n = min(length(preFD), length(postFD));
+                            if n > 0, preExpanded(1:n) = preFD(1:n); end
+                            isNew = ~cellfun(@isempty, postFD) & ~strcmp(postFD, preExpanded);
+                            newlyFD = postFD(isNew);
+                            for ufd = unique(newlyFD)
+                                all_rows{end+1} = sprintf('%s,%s,%d', cleanFileName, ufd{1}, sum(strcmp(newlyFD, ufd{1})));
+                            end
+                        end
+                    end
+
+                    % Save once after all labels are applied
+                    output_path = fullfile(outputDir, [cleanFileName '_processed.set']);
+                    pop_saveset(tempEEG, 'filename', output_path, 'savemode', 'twofiles');
+                    clear tempEEG;
+
+                    processed_count = processed_count + 1;
+                    fprintf('Processed %d/%d: %s\n', processed_count, length(batchFilePaths), cleanFileName);
+
+                catch ME
+                    warning('Failed to process dataset %s: %s', batchFilePaths{i}, ME.message);
+                end
+            end
+        catch ME
+            if ishandle(h), delete(h); end
+            rethrow(ME);
         end
+        delete(h);
+
+        current_batch_label_count = current_batch_label_count + nLabels;
 
         % Write CSV sorted by dataset name
         if ~isempty(all_rows)
@@ -934,132 +1016,21 @@ function [EEG, com] = pop_label_datasets(EEG)
         catch
             fprintf('Note: Could not auto-save label queue.\n');
         end
-        
+
         % Clean up and close
         cleanup_temp_files(batchFilePaths);
         evalin('base', 'clear eyesort_batch_file_paths eyesort_batch_filenames eyesort_batch_mode');
-        
+
         com = sprintf('EEG = pop_label_datasets(EEG); %% Batch labeling completed with %d labels applied', current_batch_label_count);
-        
+
         total_events_msg = sprintf(['Batch labeling complete!\n\n%d dataset(s) processed with %d label(s) applied.\n\n' ...
             'All datasets are ready for BDF generation.'], length(batchFilePaths), current_batch_label_count);
         h_msg = msgbox(total_events_msg, 'Batch Complete');
         waitfor(h_msg);
-        
+
         current_batch_label_count = 0;
         uiresume(gcf);
         close(gcf);
-    end
-
-    % Batch apply a single label config to all datasets (called in a loop by apply_all_labels_batch)
-    function [processed_count, com, resolvedConflictResolution, label_rows] = batch_apply_labels_with_count(filePaths, fileNames, outputDir, config, labelNum, conflictResolution)
-        if nargin < 6, conflictResolution = ''; end
-        processed_count = 0;
-        label_rows = {};
-        com = '';
-        resolvedConflictResolution = conflictResolution;
-        
-        % Create a progress bar
-        h = waitbar(0, sprintf('Applying label %02d to batch datasets...', labelNum), 'Name', 'Batch Processing');
-        
-        try
-            for i = 1:length(filePaths)
-                waitbar(i/length(filePaths), h, sprintf('Processing %d of %d: %s (Label %02d)', i, length(filePaths), strrep(fileNames{i}, '_', ' '), labelNum));
-                
-                try
-                    % Generate clean filename once at the start
-                    [~, fileName, ~] = fileparts(filePaths{i});
-                    % Remove common processing suffixes and temp indicators
-                    cleanFileName = regexprep(fileName, '(_temp|_textia|_processed|_labeled)+', '');
-                    cleanFileName = regexprep(cleanFileName, '_+', '_');
-                    cleanFileName = regexprep(cleanFileName, '^_|_$', '');
-                    
-                    % For label 1 load from original path; subsequent labels from output dir
-                    if labelNum == 1
-                        tempEEG = pop_loadset('filename', filePaths{i});
-                    else
-                        previous_file = fullfile(outputDir, [cleanFileName '_processed.set']);
-                        if exist(previous_file, 'file')
-                            tempEEG = pop_loadset('filename', previous_file);
-                        else
-                            warning('Previous labeled file not found: %s, using original', previous_file);
-                            tempEEG = pop_loadset('filename', filePaths{i});
-                        end
-                    end
-                    
-                    % Preserve existing label count; treat missing or empty
-                    % (e.g. saved as [] by a prior run) as if absent
-                    if ~isfield(tempEEG, 'eyesort_label_count') || isempty(tempEEG.eyesort_label_count)
-                        tempEEG.eyesort_label_count = labelNum - 1;
-                    end
-                    
-                    % Verify dataset has required fields for labeling
-                    if ~isfield(tempEEG, 'eyesort_field_names') || isempty(tempEEG.eyesort_field_names)
-                        warning('Dataset %s missing eyesort_field_names - may not be properly processed', cleanFileName);
-                        continue;
-                    end
-                    
-                    % Convert configuration to parameters, include conflict resolution if set
-                    label_params = convert_config_to_params_gui(config);
-                    if ~isempty(conflictResolution)
-                        label_params = [label_params, {'conflictResolution', conflictResolution}];
-                    end
-                    
-                    % Snapshot existing descriptions before applying this label
-                    preFD = {};
-                    if isfield(tempEEG, 'event') && isfield(tempEEG.event, 'bdf_full_description')
-                        preFD = {tempEEG.event.bdf_full_description};
-                    end
-
-                    % Apply the label; capture any "remember" conflict choice so it
-                    % propagates to subsequent files in this batch run.
-                    [labeledEEG, ~, newResolution] = label_datasets_core(tempEEG, label_params{:}, 'labelCount', labelNum);
-                    if ~isempty(newResolution)
-                        resolvedConflictResolution = newResolution;
-                        conflictResolution = newResolution;
-                    end
-                    
-                    % Save with consistent clean name
-                    output_path = fullfile(outputDir, [cleanFileName '_processed.set']);
-                    pop_saveset(labeledEEG, 'filename', output_path, 'savemode', 'twofiles');
-
-                    % Accumulate only NEWLY labeled events (exclude pre-existing descriptions)
-                    if isfield(labeledEEG, 'event') && isfield(labeledEEG.event, 'bdf_full_description')
-                        postFD = {labeledEEG.event.bdf_full_description};
-                        newlyFD = {};
-                        for ei = 1:length(postFD)
-                            pre = '';
-                            if ei <= length(preFD), pre = preFD{ei}; end
-                            if ~isempty(postFD{ei}) && ~strcmp(postFD{ei}, pre)
-                                newlyFD{end+1} = postFD{ei};
-                            end
-                        end
-                        for ufd = unique(newlyFD)
-                            label_rows{end+1} = sprintf('%s,%s,%d', cleanFileName, ufd{1}, sum(strcmp(newlyFD, ufd{1})));
-                        end
-                    end
-
-                    clear tempEEG labeledEEG;
-                    try; pack; catch; end
-                    
-                    processed_count = processed_count + 1;
-                    fprintf('Processed %d/%d: %s with label %02d\n', processed_count, length(filePaths), cleanFileName, labelNum);
-                    
-                catch ME
-                    warning('Failed to process dataset %s: %s', filePaths{i}, ME.message);
-                end
-            end
-            
-            delete(h);
-            com = sprintf('EEG = pop_label_datasets(EEG); %% Applied label %02d to %d datasets', labelNum, processed_count);
-            
-            
-        catch ME
-            if exist('h', 'var') && ishandle(h)
-                delete(h);
-            end
-            error('Error in batch processing: %s', ME.message);
-        end
     end
 
     % Convert GUI configuration to parameters for core function
