@@ -284,7 +284,7 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     % Preserve whitespace in regions and handle quotes properly (using corrected names)
     for i = 1:length(regionNames)
         try
-            opts = setvaropts(opts, regionNames{i}, 'WhitespaceRule', 'preserve', 'QuoteRule', 'keep');
+            opts = setvaropts(opts, regionNames{i}, 'WhitespaceRule', 'preserve', 'QuoteRule', 'remove');
         catch
             % Fall back for older MATLAB versions
             opts = setvaropts(opts, regionNames{i}, 'WhitespaceRule', 'preserve');
@@ -350,6 +350,7 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     boundaryMap = containers.Map('KeyType', 'char', 'ValueType', 'any');        % For region boundaries
     wordBoundsStructMap = containers.Map('KeyType', 'char', 'ValueType', 'any'); % Precomputed word_boundaries structs (makeValidName applied once per stimulus)
     regionWordsMap = containers.Map('KeyType', 'char', 'ValueType', 'any');     % For storing actual words in each region
+    regionTextMap = containers.Map('KeyType', 'char', 'ValueType', 'any');      % For storing raw region text (used by Inspect Parsed Regions)
     conditionDescMap = struct();   % For condition descriptions (BDF)
     conditionDescLookup = containers.Map(); % String descriptions by numeric code
 
@@ -382,6 +383,7 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
             regionBoundaries = zeros(numRegions, 2);  % [left, right] for each region
             wordBoundaries = containers.Map('KeyType', 'char', 'ValueType', 'any');
             regionWords = struct();
+            regionTexts = struct();
             
             % Process each region in the stimulus
             for r = 1:numRegions
@@ -415,7 +417,8 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
                 [wordStarts, wordEnds] = regexp(regionText, '(\s*\S+)', 'start', 'end');
                 wordsInRegion = regexp(regionText, '(\s*\S+)', 'match');
                 
-                % Store the words in the region
+                % Store the raw text and words for this region
+                regionTexts.(sprintf('region%d_text', r)) = regionText;
                 regionWords.(sprintf('region%d_words', r)) = wordsInRegion;
                 
                 % Calculate and store the boundary of each word in pixels
@@ -448,6 +451,7 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
             end
             wordBoundsStructMap(key) = wbStruct;
             regionWordsMap(key) = regionWords;
+            regionTextMap(key) = regionTexts;
             
             % Store condition description for BDF generation (using precomputed column names)
             condDescParts = {};
@@ -483,6 +487,7 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
         [EEG.event.(sprintf('region%d_end', r))] = deal(0);
         [EEG.event.(sprintf('region%d_name', r))] = deal('');
         [EEG.event.(sprintf('region%d_words', r))] = deal([]);
+        [EEG.event.(sprintf('region%d_text', r))] = deal('');
     end
 
     % Process EEG events to assign boundaries
@@ -512,6 +517,7 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     regionEndFields   = arrayfun(@(r) sprintf('region%d_end',   r), 1:numRegions, 'UniformOutput', false);
     regionNameFields  = arrayfun(@(r) sprintf('region%d_name',  r), 1:numRegions, 'UniformOutput', false);
     regionWordsFields = arrayfun(@(r) sprintf('region%d_words', r), 1:numRegions, 'UniformOutput', false);
+    regionTextFields  = arrayfun(@(r) sprintf('region%d_text',  r), 1:numRegions, 'UniformOutput', false);
 
     % Process each event in the EEG structure
     for iEvt = 1:length(EEG.event)
@@ -587,10 +593,18 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
                     end
                     
                     % Determine which region contains this fixation position
+                    % Uses half-open intervals [start, end) so boundary pixels
+                    % belong to the next region. The last region uses [start, end]
+                    % to avoid dropping fixations at the rightmost edge.
                     for r = 1:numRegions
                         region_start = regionBoundaries(r, 1);
                         region_end = regionBoundaries(r, 2);
-                        if fix_pos_x >= region_start && fix_pos_x <= region_end
+                        if r < numRegions
+                            inRegion = fix_pos_x >= region_start && fix_pos_x < region_end;
+                        else
+                            inRegion = fix_pos_x >= region_start && fix_pos_x <= region_end;
+                        end
+                        if inRegion
                             EEG.event(iEvt).current_region = r;
                             break;
                         end
@@ -599,11 +613,17 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
                 numAssigned = numAssigned + 1;
             end
 
-            % Assign region words if available
+            % Assign region words and raw text if available
             if isKey(regionWordsMap, lastValidKey)
                 regionWords = regionWordsMap(lastValidKey);
                 for r = 1:numRegions
                     EEG.event(iEvt).(regionWordsFields{r}) = regionWords.(regionWordsFields{r});
+                end
+            end
+            if isKey(regionTextMap, lastValidKey)
+                regionTexts = regionTextMap(lastValidKey);
+                for r = 1:numRegions
+                    EEG.event(iEvt).(regionTextFields{r}) = regionTexts.(regionTextFields{r});
                 end
             end
 
