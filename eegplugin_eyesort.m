@@ -98,22 +98,26 @@ function currvers = eegplugin_eyesort(fig, ~, ~)
             uimenu(loadInterestAreasMenu, 'Label', 'Text-Based Sentence Contents and Interest Areas', ...
                 'Tag', 'EyeSort_TextIA', 'enable', 'off', ...
                 'callback', @(src,event) try_callback(@pop_load_text_ia, src, event));
+
+            uimenu(loadInterestAreasMenu, 'Label', 'Inspect Parsed Regions', ...
+                'Tag', 'EyeSort_InspectRegions', 'enable', 'off', ...
+                'callback', @(src,event) try_callback(@pop_inspect_regions, src, event));
             
             uimenu(loadInterestAreasMenu, 'Label', 'Pixel-Based Interest Areas', 'separator', 'on', ...
                 'Tag', 'EyeSort_PixelIA', 'enable', 'off', ...
                 'callback', @(src,event) try_callback(@pop_load_pixel_ia, src, event));
 
-            % Add the new label datasets menu item
-uimenu(submenu, 'label', '3. Eye-Tracking Event Labeling', 'separator', 'off', ...
-'callback', @(src,event) try_callback(@pop_label_datasets, src, event));
+            % Import columns from IA text file into EEG events
+            uimenu(submenu, 'label', '3. Import IA Columns to Events', 'separator', 'off', ...
+                'callback', @(src,event) try_callback(@pop_import_ia_columns, src, event));
+
+            % Eye-tracking event labeling
+            uimenu(submenu, 'label', '4. Eye-Tracking Event Labeling', 'separator', 'off', ...
+                'callback', @(src,event) try_callback(@pop_label_datasets, src, event));
             
             % Add the new BDF generator menu item
             uimenu(submenu, 'label', 'Generate BINLISTER BDF File', 'separator', 'on', ...
                 'callback', @(src,event) try_callback(@pop_generate_bdf, src, event));
-            
-            % Add menu item to save labeled datasets
-uimenu(submenu, 'label', 'Save Labeled Dataset', 'separator', 'on', ...
-'callback', @(src,event) try_callback(@save_all_labeled_datasets, src, event));
             
             uimenu(submenu, 'label', 'Help', 'separator', 'on', ...
                    'callback', @(src,event) try_callback(@help_button, src, event));
@@ -206,6 +210,36 @@ function update_eyesort_menu_state()
         % Always keep pixel IA disabled (not implemented)
         pixelIAMenu = findobj(mainMenu, 'Tag', 'EyeSort_PixelIA');
         if ~isempty(pixelIAMenu), set(pixelIAMenu, 'enable', 'off'); end
+        
+        % Enable Inspect Parsed Regions only after Step 2 has been run
+        inspectMenu = findobj(mainMenu, 'Tag', 'EyeSort_InspectRegions');
+        if ~isempty(inspectMenu)
+            hasProcessed = false;
+            try
+                EEG = evalin('base', 'EEG');
+                if isfield(EEG, 'eyesort_processed') && EEG.eyesort_processed
+                    hasProcessed = true;
+                end
+            catch
+            end
+            if ~hasProcessed
+                try
+                    ALLEEG = evalin('base', 'ALLEEG');
+                    for i = 1:length(ALLEEG)
+                        if isfield(ALLEEG(i), 'eyesort_processed') && ALLEEG(i).eyesort_processed
+                            hasProcessed = true;
+                            break;
+                        end
+                    end
+                catch
+                end
+            end
+            if hasProcessed
+                set(inspectMenu, 'enable', 'on');
+            else
+                set(inspectMenu, 'enable', 'off');
+            end
+        end
         
     catch ME
         % Silently handle errors to avoid disrupting the plugin
