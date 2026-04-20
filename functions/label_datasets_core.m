@@ -133,6 +133,7 @@ if ~isempty(varargin) && ischar(varargin{1}) && (endsWith(varargin{1}, '.m') || 
     labelDescription = get_config_value(config, 'labelDescription', '');
     conflictResolution = get_config_value(config, 'conflictResolution', 'ask');
     showRegionMap = get_config_value(config, 'showRegionMap', true);
+    eventFormat = get_config_value(config, 'eventFormat', 'numeric');
     
 else
     % Individual parameters method (original)
@@ -151,6 +152,7 @@ else
     addParameter(p, 'labelDescription', '', @ischar);
     addParameter(p, 'conflictResolution', 'ask', @ischar);
     addParameter(p, 'showRegionMap', true, @islogical);
+    addParameter(p, 'eventFormat', 'numeric', @ischar);
     
     parse(p, EEG, varargin{:});
     
@@ -168,6 +170,7 @@ else
     labelDescription = p.Results.labelDescription;
     conflictResolution = p.Results.conflictResolution;
     showRegionMap = p.Results.showRegionMap;
+    eventFormat = p.Results.eventFormat;
 end
 
 % Validate input EEG structure
@@ -239,8 +242,11 @@ try
                                             passOptions, prevRegions, nextRegions, ...
                                             fixationOptions, saccadeInOptions, saccadeOutOptions, labelCount, ...
                                             fixationType, fixationXField, saccadeType, ...
-                                            saccadeStartXField, saccadeEndXField, labelDescription, rtl, conflictResolution, showRegionMap);
+                                            saccadeStartXField, saccadeEndXField, labelDescription, rtl, conflictResolution, showRegionMap, eventFormat);
     
+    % Store the event format used for labeling
+    labeledEEG.eyesort_event_format = eventFormat;
+
     % Update label count and descriptions
     labeledEEG.eyesort_label_count = labelCount;
     if ~isfield(labeledEEG, 'eyesort_label_descriptions')
@@ -292,7 +298,7 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                                                 fixationOptions, saccadeInOptions, ...
                                                 saccadeOutOptions, labelCount, ...
                                                 fixationType, fixationXField, saccadeType, ...
-                                                saccadeStartXField, saccadeEndXField, labelDescription, rtl, conflictResolution, showRegionMap)
+                                                saccadeStartXField, saccadeEndXField, labelDescription, rtl, conflictResolution, showRegionMap, eventFormat)
     % Optimized internal labeling implementation with O(n) complexity
     
     % Initialize conflict resolution output
@@ -889,15 +895,13 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
             continue; % Skip this event instead of overwriting
         end
         
-        % Update the event type and related fields
-        labeledEEG.event(mm).type = newType;
+        % Always store the canonical CCRRLL code and sub-codes
         labeledEEG.event(mm).eyesort_condition_code = condStr;
         labeledEEG.event(mm).eyesort_region_code = regionStr;
         labeledEEG.event(mm).eyesort_label_code = labelStr;
         labeledEEG.event(mm).eyesort_full_code = newType;
         
         % Initialize BDF description fields for ALL events (only once, after eyesort fields)
-        % Only initialize if fields don't exist to preserve existing descriptions
         if ~bdf_fields_initialized
             if ~isfield(labeledEEG.event, 'bdf_condition_description')
                 fprintf('Initializing BDF description fields for all events...\n');
@@ -905,46 +909,56 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                 [labeledEEG.event.bdf_label_description] = deal('');
                 [labeledEEG.event.bdf_full_description] = deal('');
             end
+            if ~isfield(labeledEEG.event, 'current_word_text')
+                [labeledEEG.event.current_word_text] = deal('');
+            end
             bdf_fields_initialized = true;
         end
         
-        % Add BDF description columns directly (only to labeled events to minimize 7.3 risk)
-        if ~isempty(labelDescription)
-            % Get condition description string from lookup
-            conditionDesc = '';
-            if isfield(labeledEEG, 'eyesort_condition_descriptions') && ...
-               isfield(labeledEEG, 'eyesort_condition_lookup') && ...
-               conditionNumbers(mm) > 0 && itemNumbers(mm) > 0
-                key = sprintf('%d_%d', conditionNumbers(mm), itemNumbers(mm));
-                if isKey(validKeyCache, key)
-                    validKey = validKeyCache(key);
-                else
-                    validKey = matlab.lang.makeValidName(['k_' key]);
-                    validKeyCache(key) = validKey;
-                end
-                condStruct = labeledEEG.eyesort_condition_descriptions;
-                if isfield(condStruct, validKey)
-                    conditionNum = condStruct.(validKey); % This is numeric
-                    % Convert back to string using lookup
-                    if isKey(labeledEEG.eyesort_condition_lookup, num2str(conditionNum))
-                        conditionDesc = labeledEEG.eyesort_condition_lookup(num2str(conditionNum));
+        % Resolve the actual word text from the positional current_word index
+        wordText = '';
+        if isfield(evt, 'current_word') && ischar(evt.current_word) && ~isempty(evt.current_word)
+            try
+                [regionNum, wordNum] = parse_word_region(evt.current_word);
+                wordsField = sprintf('region%d_words', regionNum);
+                if isfield(evt, wordsField) && ~isempty(evt.(wordsField))
+                    words = evt.(wordsField);
+                    if iscell(words) && wordNum <= length(words)
+                        wordText = strtrim(words{wordNum});
                     end
                 end
+            catch
             end
-            
-            % Store actual strings in dataset (only on labeled events)
-            % Handle empty strings properly to avoid concatenation issues
-            if isempty(conditionDesc)
-                conditionDesc = '';
+        end
+        labeledEEG.event(mm).current_word_text = wordText;
+        
+        % Resolve condition description (needed for BDF fields and text formats)
+        conditionDesc = '';
+        if isfield(labeledEEG, 'eyesort_condition_descriptions') && ...
+           isfield(labeledEEG, 'eyesort_condition_lookup') && ...
+           conditionNumbers(mm) > 0 && itemNumbers(mm) > 0
+            key = sprintf('%d_%d', conditionNumbers(mm), itemNumbers(mm));
+            if isKey(validKeyCache, key)
+                validKey = validKeyCache(key);
+            else
+                validKey = matlab.lang.makeValidName(['k_' key]);
+                validKeyCache(key) = validKey;
             end
-            if isempty(labelDescription)
-                labelDescription = '';
+            condStruct = labeledEEG.eyesort_condition_descriptions;
+            if isfield(condStruct, validKey)
+                conditionNum = condStruct.(validKey);
+                if isKey(labeledEEG.eyesort_condition_lookup, num2str(conditionNum))
+                    conditionDesc = labeledEEG.eyesort_condition_lookup(num2str(conditionNum));
+                end
             end
-            
+        end
+        if isempty(conditionDesc), conditionDesc = ''; end
+        
+        % Store BDF description fields (only when labelDescription is provided)
+        if ~isempty(labelDescription)
             labeledEEG.event(mm).bdf_condition_description = char(conditionDesc);
             labeledEEG.event(mm).bdf_label_description = char(labelDescription);
             
-            % Safe concatenation that handles empty strings
             if isempty(conditionDesc) && isempty(labelDescription)
                 labeledEEG.event(mm).bdf_full_description = '';
             elseif isempty(conditionDesc)
@@ -954,6 +968,49 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
             else
                 labeledEEG.event(mm).bdf_full_description = [char(conditionDesc) ' ' char(labelDescription)];
             end
+        end
+        
+        % Set EEG.event.type based on the chosen eventFormat
+        switch eventFormat
+            case 'numeric'
+                labeledEEG.event(mm).type = newType;
+            case 'description'
+                descType = build_description_type(conditionDesc, labelDescription);
+                if isempty(descType)
+                    labeledEEG.event(mm).type = newType;
+                else
+                    labeledEEG.event(mm).type = descType;
+                end
+            case 'description_word'
+                descType = build_description_type(conditionDesc, labelDescription);
+                if isempty(descType)
+                    labeledEEG.event(mm).type = newType;
+                elseif ~isempty(wordText)
+                    labeledEEG.event(mm).type = [descType ' ' wordText];
+                else
+                    labeledEEG.event(mm).type = descType;
+                end
+            case 'region_content'
+                regionText = '';
+                if isfield(evt, 'current_word') && ischar(evt.current_word) && ~isempty(evt.current_word)
+                    try
+                        [regionNum, ~] = parse_word_region(evt.current_word);
+                        textField = sprintf('region%d_text', regionNum);
+                        if isfield(evt, textField) && ischar(evt.(textField)) && ~isempty(evt.(textField))
+                            regionText = strtrim(evt.(textField));
+                        end
+                    catch
+                    end
+                end
+                if ~isempty(regionText)
+                    labeledEEG.event(mm).type = regionText;
+                else
+                    labeledEEG.event(mm).type = newType;
+                end
+            case 'original'
+                % Do not overwrite type; leave it as original_type
+            otherwise
+                labeledEEG.event(mm).type = newType;
         end
     end
     
@@ -994,28 +1051,86 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                 evt_idx = conflictingEvents{i}.event_index;
                 new_code = conflictingEvents{i}.new_code;
                 
-                % Update the event with new code
-                labeledEEG.event(evt_idx).type = new_code;
+                % Always update the canonical CCRRLL code
                 labeledEEG.event(evt_idx).eyesort_full_code = new_code;
                 labeledEEG.event(evt_idx).eyesort_condition_code = new_code(1:2);
                 labeledEEG.event(evt_idx).eyesort_region_code = new_code(3:4);
                 labeledEEG.event(evt_idx).eyesort_label_code = new_code(5:6);
                 
                 % Update BDF descriptions with current label description
+                conditionDesc = '';
                 if ~isempty(labelDescription)
-                    % Get existing condition description
-                    conditionDesc = '';
                     if isfield(labeledEEG.event(evt_idx), 'bdf_condition_description')
                         conditionDesc = labeledEEG.event(evt_idx).bdf_condition_description;
                     end
                     
-                    % Update descriptions
                     labeledEEG.event(evt_idx).bdf_label_description = char(labelDescription);
                     if isempty(conditionDesc)
                         labeledEEG.event(evt_idx).bdf_full_description = char(labelDescription);
                     else
                         labeledEEG.event(evt_idx).bdf_full_description = [char(conditionDesc) ' ' char(labelDescription)];
                     end
+                end
+                
+                % Resolve word text for conflict events
+                cEvt = labeledEEG.event(evt_idx);
+                cWordText = '';
+                if isfield(cEvt, 'current_word') && ischar(cEvt.current_word) && ~isempty(cEvt.current_word)
+                    try
+                        [rn, wn] = parse_word_region(cEvt.current_word);
+                        wf = sprintf('region%d_words', rn);
+                        if isfield(cEvt, wf) && ~isempty(cEvt.(wf))
+                            ws = cEvt.(wf);
+                            if iscell(ws) && wn <= length(ws)
+                                cWordText = strtrim(ws{wn});
+                            end
+                        end
+                    catch
+                    end
+                end
+                labeledEEG.event(evt_idx).current_word_text = cWordText;
+                
+                % Set type based on eventFormat
+                switch eventFormat
+                    case 'numeric'
+                        labeledEEG.event(evt_idx).type = new_code;
+                    case 'description'
+                        descType = build_description_type(conditionDesc, labelDescription);
+                        if isempty(descType)
+                            labeledEEG.event(evt_idx).type = new_code;
+                        else
+                            labeledEEG.event(evt_idx).type = descType;
+                        end
+                    case 'description_word'
+                        descType = build_description_type(conditionDesc, labelDescription);
+                        if isempty(descType)
+                            labeledEEG.event(evt_idx).type = new_code;
+                        elseif ~isempty(cWordText)
+                            labeledEEG.event(evt_idx).type = [descType ' ' cWordText];
+                        else
+                            labeledEEG.event(evt_idx).type = descType;
+                        end
+                    case 'region_content'
+                        regionText = '';
+                        if isfield(cEvt, 'current_word') && ischar(cEvt.current_word) && ~isempty(cEvt.current_word)
+                            try
+                                [rn2, ~] = parse_word_region(cEvt.current_word);
+                                tf = sprintf('region%d_text', rn2);
+                                if isfield(cEvt, tf) && ischar(cEvt.(tf)) && ~isempty(cEvt.(tf))
+                                    regionText = strtrim(cEvt.(tf));
+                                end
+                            catch
+                            end
+                        end
+                        if ~isempty(regionText)
+                            labeledEEG.event(evt_idx).type = regionText;
+                        else
+                            labeledEEG.event(evt_idx).type = new_code;
+                        end
+                    case 'original'
+                        % Leave type unchanged
+                    otherwise
+                        labeledEEG.event(evt_idx).type = new_code;
                 end
             end
             fprintf('Replaced %d conflicting labels.\n', length(conflictingEvents));
@@ -1231,5 +1346,20 @@ function [choice, rememberAll] = show_conflict_dialog(conflictingEvents, dataset
             uiresume(hDlg);
             delete(hDlg);
         end
+    end
+end
+
+%% Helper function: build_description_type
+function descType = build_description_type(conditionDesc, labelDescription)
+    conditionDesc = char(conditionDesc);
+    labelDescription = char(labelDescription);
+    if isempty(conditionDesc) && isempty(labelDescription)
+        descType = '';
+    elseif isempty(conditionDesc)
+        descType = labelDescription;
+    elseif isempty(labelDescription)
+        descType = conditionDesc;
+    else
+        descType = [conditionDesc ' ' labelDescription];
     end
 end

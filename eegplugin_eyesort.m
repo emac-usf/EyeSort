@@ -119,6 +119,9 @@ function currvers = eegplugin_eyesort(fig, ~, ~)
             uimenu(submenu, 'label', 'Generate BINLISTER BDF File', 'separator', 'on', ...
                 'callback', @(src,event) try_callback(@pop_generate_bdf, src, event));
             
+            uimenu(submenu, 'label', 'Modify Event Marker Format', 'separator', 'off', ...
+                'callback', @(src,event) try_callback(@pop_convert_event_codes, src, event));
+            
             uimenu(submenu, 'label', 'Help', 'separator', 'on', ...
                    'callback', @(src,event) try_callback(@help_button, src, event));
 

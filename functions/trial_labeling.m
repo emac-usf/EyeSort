@@ -515,32 +515,6 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
     fprintf('Done computing region tracking and pass fields.\n');
 end
 
-% Parses word region identifiers into region number and word number
-% Handles two formats:
-% - "4.2" -> region 4, word 2
-% - "x1_1" -> region 1, word 1
-function [major, minor] = parse_word_region(word_region)
-    % Parses a word region string (e.g., "4.2" or "x1_1") into its major (region) and minor (word) parts.
-    if contains(word_region, '.')
-        parts = split(word_region, '.');
-        major = str2double(parts{1});
-        minor = str2double(parts{2});
-    elseif contains(word_region, '_')
-        parts = split(word_region, '_');
-        % Remove 'x' from the first part if it exists
-        region_part = regexprep(parts{1}, '^x', '');
-        major = str2double(region_part);
-        minor = str2double(parts{2});
-    else
-        error('Unknown word region format: %s', word_region);
-    end
-    
-    if isnan(major) || isnan(minor)
-        error('Failed to parse word region: %s', word_region);
-    end
-end
-
-
 % Determines which word a fixation falls into based on x-coordinate
 % Returns the word identifier or empty string if no match found
 function currentWord = determine_word_region(event, fixationXField)
