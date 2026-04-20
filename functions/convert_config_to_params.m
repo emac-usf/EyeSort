@@ -118,4 +118,10 @@ end
 label_params{end+1} = 'saccadeOutOptions';
 label_params{end+1} = saccadeOutOptions;
 
+% Event format
+if isfield(config, 'eventFormat') && ~isempty(config.eventFormat)
+    label_params{end+1} = 'eventFormat';
+    label_params{end+1} = config.eventFormat;
+end
+
 end 

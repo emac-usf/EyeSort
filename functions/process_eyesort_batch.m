@@ -213,6 +213,9 @@ for i = 1:length(datasetFiles)
             if isfield(config, 'items') && ~isempty(config.items)
                 filter_args = [filter_args, {'items', config.items}];
             end
+            if isfield(config, 'eventFormat') && ~isempty(config.eventFormat)
+                filter_args = [filter_args, {'eventFormat', config.eventFormat}];
+            end
             
             [EEG, ~] = label_datasets_core(EEG, filter_args{:});
         else

@@ -150,13 +150,21 @@ function [EEG, com] = pop_label_datasets(EEG)
     % Create parts of the layout for non-region sections
     % geomhoriz and geomvert are built in parallel (one entry per GUI row).
     % geomvert controls relative row heights; the label-queue listbox gets 4x height.
+    eventFormatOptions = {'Numeric code (CCRRLL) - ERPLAB compatible', ...
+                          'Condition and label description', ...
+                          'Condition, label, and fixated word', ...
+                          'Region text content', ...
+                          'Keep original event codes'};
+    eventFormatValues  = {'numeric', 'description', 'description_word', 'region_content', 'original'};
+
     geomhoriz = { ...
         1, ...                % Configuration management
         [1 1 1], ...            % Load config, Load last config buttons
         [0.5 1], ...          % Label Description label + edit box (consolidated)
+        [0.5 1], ...          % Event Marker Format label + popup
         1, ...                % Time-Locked Region title (description folded in)
     };
-    geomvert = [1, 1, 1, 1];
+    geomvert = [1, 1, 1, 1, 1];
     
     uilist = { ...
         {'Style','text','String','Configuration Management:', 'FontWeight', 'bold'}, ...
@@ -167,6 +175,9 @@ function [EEG, com] = pop_label_datasets(EEG)
         ...
         {'Style','text','String','Label Description (used in BDF generation):', 'FontWeight', 'bold'}, ...
         {'Style','edit','String','','tag','edtLabelDescription','ForegroundColor',[0 0 0]}, ...
+        ...
+        {'Style','text','String','Select Event Marker Format:', 'FontWeight', 'bold'}, ...
+        {'Style','popupmenu','String', eventFormatOptions, 'tag','popEventFormat','Value',1}, ...
         ...
         {'Style','text','String','Time-Locked Region: (main region of interest for all label criteria)', 'FontWeight', 'bold'}, ...
     };
@@ -482,6 +493,13 @@ function [EEG, com] = pop_label_datasets(EEG)
             % Queue — restore all labels to pending_labels and refresh display
             pending_labels = result;
             update_queue_display();
+            % Restore event format from the first label config if available
+            if ~isempty(result) && isfield(result{1}, 'eventFormat')
+                fmtIdx = find(strcmp(eventFormatValues, result{1}.eventFormat), 1);
+                if ~isempty(fmtIdx)
+                    set(findobj('tag','popEventFormat'), 'Value', fmtIdx);
+                end
+            end
             msgbox(sprintf('Label queue loaded! %d label(s) added to the queue.\n\nClick "Apply All & Finish" to run them.', ...
                 length(pending_labels)), 'Load Complete', 'help');
         else
@@ -545,6 +563,9 @@ function [EEG, com] = pop_label_datasets(EEG)
                 config.labelDescription = config.labelDescription{1};
             end
             config.labelDescription = strtrim(config.labelDescription); % Trim whitespace from user input
+            
+            % Event format selection (session-wide, stored per config for reproducibility)
+            config.eventFormat = get_selected_event_format();
             
             % Store available regions for validation when loading
             config.availableRegions = regionNames;
@@ -663,6 +684,14 @@ function [EEG, com] = pop_label_datasets(EEG)
                 set(findobj('tag','edtLabelDescription'), 'String', config.labelDescription);
             end
             
+            % Apply event format selection
+            if isfield(config, 'eventFormat')
+                fmtIdx = find(strcmp(eventFormatValues, config.eventFormat), 1);
+                if ~isempty(fmtIdx)
+                    set(findobj('tag','popEventFormat'), 'Value', fmtIdx);
+                end
+            end
+            
         catch ME
             errordlg(['Error applying label configuration to GUI: ' ME.message], 'Apply Error');
         end
@@ -702,6 +731,21 @@ function [EEG, com] = pop_label_datasets(EEG)
         end
     end
 
+    % Read the event marker format from the GUI dropdown
+    function fmt = get_selected_event_format()
+        hPop = findobj('tag', 'popEventFormat');
+        if isempty(hPop)
+            fmt = 'numeric';
+            return;
+        end
+        idx = get(hPop, 'Value');
+        if idx >= 1 && idx <= length(eventFormatValues)
+            fmt = eventFormatValues{idx};
+        else
+            fmt = 'numeric';
+        end
+    end
+
     % Format a queued label config as a readable string for the listbox
     function str = format_label_for_display(cfg, idx)
         desc = '(no description)';
@@ -721,6 +765,9 @@ function [EEG, com] = pop_label_datasets(EEG)
     function apply_all_labels_single()
         nLabels = length(pending_labels);
         matched_counts = zeros(1, nLabels);
+        
+        % Read the session-wide event format selection
+        selectedEventFormat = get_selected_event_format();
         
         % Determine starting label count once before the loop so it is immune
         % to a stale or empty eyesort_label_count value in the struct
@@ -743,6 +790,7 @@ function [EEG, com] = pop_label_datasets(EEG)
                 if ~isempty(saved_conflict_resolution)
                     label_params = [label_params, {'conflictResolution', saved_conflict_resolution}];
                 end
+                label_params = [label_params, {'eventFormat', selectedEventFormat}];
                 [EEG, label_com, chosen] = label_datasets_core(EEG, label_params{:}, 'labelCount', currentLabelNum, 'showRegionMap', qi == 1);
                 com = label_com;
                 if ~isempty(chosen)
@@ -832,10 +880,20 @@ function [EEG, com] = pop_label_datasets(EEG)
             fdStr = sprintf('\n\nTrials by label+condition:\n%s', strjoin(fdLines, '\n'));
         end
 
+        formatDescriptions = struct( ...
+            'numeric', 'Events labeled with 6-digit codes (CCRRLL). CC = condition, RR = region, LL = label', ...
+            'description', 'Events labeled with condition + label descriptions (e.g., ''Identical PreTarget_NoSkip'')', ...
+            'description_word', 'Events labeled with condition + label + fixated word (e.g., ''Identical PreTarget_NoSkip JUMPED'')', ...
+            'region_content', 'Events labeled with region text content', ...
+            'original', 'Event codes left as original (pre-EyeSort) values');
+        if isfield(formatDescriptions, selectedEventFormat)
+            formatNote = formatDescriptions.(selectedEventFormat);
+        else
+            formatNote = 'Events labeled with 6-digit codes (CCRRLL).';
+        end
         summaryStr = sprintf(['Labeling complete!\n\n%d label(s) applied:\n%s%s\n\n' ...
-            'Events have been labeled with 6-digit codes (CCRRLL).\n' ...
-            'CC = condition, RR = region, LL = label'], ...
-            nLabels, strjoin(summaryLines, '\n'), fdStr);
+            '%s'], ...
+            nLabels, strjoin(summaryLines, '\n'), fdStr, formatNote);
         hMsg = msgbox(summaryStr, 'Labeling Complete', 'help');
         waitfor(hMsg);
         
@@ -886,6 +944,9 @@ function [EEG, com] = pop_label_datasets(EEG)
     % This reduces disk I/O from N×L loads+saves to N loads + N saves.
     % -----------------------------------------------------------------------
     function apply_all_labels_batch()
+        % Read the session-wide event format selection
+        selectedEventFormat = get_selected_event_format();
+
         % Determine the starting label count from the reference EEG already in
         % memory (loaded at the top of pop_label_datasets) — no extra disk read.
         if current_batch_label_count == 0
@@ -956,7 +1017,7 @@ function [EEG, com] = pop_label_datasets(EEG)
 
                         % Apply the label; capture any "remember" conflict choice so it
                         % propagates to subsequent datasets and labels in this run.
-                        [tempEEG, ~, newResolution] = label_datasets_core(tempEEG, label_params{:}, 'labelCount', labelNum, 'showRegionMap', qi == 1);
+                        [tempEEG, ~, newResolution] = label_datasets_core(tempEEG, label_params{:}, 'labelCount', labelNum, 'showRegionMap', qi == 1, 'eventFormat', selectedEventFormat);
                         if ~isempty(newResolution)
                             saved_conflict_resolution = newResolution;
                         end
