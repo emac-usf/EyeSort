@@ -50,13 +50,13 @@ if ~ismember(eventFormat, validFormats)
 end
 
 if ~isfield(EEG, 'event') || isempty(EEG.event)
-    warning('EEG dataset has no events. Nothing to convert.');
-    return;
+    error('convert_event_codes:NoEvents', ...
+        'EEG dataset has no events. Nothing can be converted.');
 end
 
 if ~isfield(EEG.event, 'eyesort_full_code')
-    warning('No eyesort_full_code field found. Dataset may not have been labeled yet.');
-    return;
+    error('convert_event_codes:NotLabeled', ...
+        'No eyesort_full_code field found. Please run EyeSort labeling before converting event marker formats.');
 end
 
 convertedCount = 0;
@@ -115,6 +115,10 @@ for i = 1:length(EEG.event)
 end
 
 EEG.eyesort_event_format = eventFormat;
+if convertedCount == 0
+    error('convert_event_codes:NoLabeledEvents', ...
+        'The dataset has eyesort_full_code but no labeled events with usable codes. Re-run labeling or check zero-match diagnostics.');
+end
 fprintf('Converted %d event(s) to ''%s'' format.\n', convertedCount, eventFormat);
 
 end

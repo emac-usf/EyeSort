@@ -131,6 +131,13 @@ for i = 1:length(sampleEEG.event)
     end
 end
 
+if isempty(previewEvent)
+    errordlg(['No labeled events with usable eyesort_full_code values were found. ', ...
+              'Please run EyeSort labeling first and check zero-match diagnostics.'], ...
+             'Convert Event Codes');
+    return;
+end
+
 previewStrings = cell(1, length(formatValues));
 for fi = 1:length(formatValues)
     previewStrings{fi} = build_preview(previewEvent, formatValues{fi});
@@ -228,11 +235,12 @@ uiwait(hDlg);
         if ishandle(hDlg), delete(hDlg); end
 
         if batchMode
-            apply_batch(batchFiles, selectedFormat);
+            stats = apply_batch(batchFiles, selectedFormat);
             com = sprintf('%% pop_convert_event_codes batch: %d file(s) -> %s', ...
                 length(batchFiles), selectedFormat);
-            msgbox(sprintf('Converted %d dataset(s) to ''%s'' format.', ...
-                length(batchFiles), selectedFormat), ...
+            msgbox(sprintf(['Event marker conversion complete.\n\nConverted: %d dataset(s)\n' ...
+                'Skipped not labeled: %d dataset(s)\nFailed: %d dataset(s)\n\nFormat: %s'], ...
+                stats.converted, stats.skipped, stats.failed, selectedFormat), ...
                 'Conversion Complete', 'help');
         else
             EEG = convert_event_codes(EEG, selectedFormat);
@@ -249,8 +257,9 @@ uiwait(hDlg);
 end
 
 %% Apply conversion to a list of dataset files, saving each in place.
-function apply_batch(files, fmt)
+function stats = apply_batch(files, fmt)
     nFiles = length(files);
+    stats = struct('converted', 0, 'skipped', 0, 'failed', 0);
     fprintf('Converting event codes in %d dataset(s) to format ''%s''...\n', nFiles, fmt);
     h = waitbar(0, 'Converting event codes...', 'Name', 'Convert Event Codes');
     cleanup = onCleanup(@() safe_delete(h));
@@ -265,6 +274,7 @@ function apply_batch(files, fmt)
             if ~isfield(tmp, 'event') || isempty(tmp.event) || ...
                ~isfield(tmp.event, 'eyesort_full_code')
                 fprintf('  Skipping %s: not labeled by EyeSort.\n', fname);
+                stats.skipped = stats.skipped + 1;
                 continue;
             end
 
@@ -274,12 +284,15 @@ function apply_batch(files, fmt)
             waitbar((i-0.25)/nFiles, h, sprintf('Saving %s...', fname));
             pop_saveset(tmp, 'filename', fname, 'filepath', folder, 'savemode', 'twofiles');
             fprintf('  Converted %d/%d: %s\n', i, nFiles, fname);
+            stats.converted = stats.converted + 1;
         catch ME
             warning('Failed to convert %s: %s', fname, ME.message);
+            stats.failed = stats.failed + 1;
         end
         clear tmp;
     end
-    fprintf('Batch conversion complete.\n');
+    fprintf('Batch conversion complete. Converted: %d, skipped: %d, failed: %d.\n', ...
+        stats.converted, stats.skipped, stats.failed);
 end
 
 function safe_delete(h)

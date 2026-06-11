@@ -711,6 +711,16 @@ function [EEG, com] = pop_load_text_ia(EEG)
 
         % Read RTL checkbox value
         rtl = get(findobj(gcf, 'tag','chkRTL'), 'Value');
+
+        % Validate trigger inputs against the loaded dataset before processing.
+        % This catches format/key mismatches close to the user input fields.
+        [triggerDiagnostics, ~] = validate_triggers(EEG, startCodeStr, endCodeStr, ...
+            condTriggers, itemTriggers, sentenceStartCodeStr, sentenceEndCodeStr);
+        hasTriggerErrors = report_diagnostics(triggerDiagnostics, ...
+            'EyeSort Step 2 Trigger Validation', 'dialog');
+        if hasTriggerErrors
+            return;
+        end
         
         % Check save status - only show popup if there are warnings
         % Check intermediate dataset status

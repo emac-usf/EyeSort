@@ -59,6 +59,17 @@ function EEG = import_ia_columns(EEG, txtFilePath, condColName, itemColName, sel
     opts.VariableNamingRule = 'preserve';
     data = readtable(txtFilePath, opts);
 
+    if ~ismember(condColName, data.Properties.VariableNames)
+        error('import_ia_columns:CondColNotFound', ...
+            'Condition column "%s" not found in IA file. Available columns: %s', ...
+            condColName, strjoin(data.Properties.VariableNames, ', '));
+    end
+    if ~ismember(itemColName, data.Properties.VariableNames)
+        error('import_ia_columns:ItemColNotFound', ...
+            'Item column "%s" not found in IA file. Available columns: %s', ...
+            itemColName, strjoin(data.Properties.VariableNames, ', '));
+    end
+
     % Validate that all requested columns exist
     for c = 1:length(selectedColumns)
         if ~ismember(selectedColumns{c}, data.Properties.VariableNames)
@@ -70,15 +81,24 @@ function EEG = import_ia_columns(EEG, txtFilePath, condColName, itemColName, sel
 
     %% Build lookup: "condition_item" -> row index
     rowMap = containers.Map('KeyType', 'char', 'ValueType', 'double');
+    invalidRows = 0;
     for iRow = 1:height(data)
         cond = data.(condColName)(iRow);
         item = data.(itemColName)(iRow);
-        if iscell(cond), cond = cond{1}; end
-        if iscell(item), item = item{1}; end
-        if ischar(cond), cond = str2double(cond); end
-        if ischar(item), item = str2double(item); end
+        cond = normalize_numeric_value(cond);
+        item = normalize_numeric_value(item);
+        if isempty(cond) || isempty(item) || isnan(cond) || isnan(item)
+            invalidRows = invalidRows + 1;
+            continue;
+        end
         key = sprintf('%d_%d', cond, item);
         rowMap(key) = iRow;
+    end
+
+    if rowMap.Count == 0
+        error('import_ia_columns:NoValidRows', ...
+            'No valid condition/item rows were found in the IA file using columns "%s" and "%s".', ...
+            condColName, itemColName);
     end
 
     %% Initialize new event fields
@@ -90,17 +110,33 @@ function EEG = import_ia_columns(EEG, txtFilePath, condColName, itemColName, sel
 
     %% Assign column values to matching events
     assignedEvents = 0;
+    validEventKeys = 0;
+    invalidEventKeys = 0;
+    missingKeyMap = containers.Map('KeyType', 'char', 'ValueType', 'double');
+    matchedKeyMap = containers.Map('KeyType', 'char', 'ValueType', 'double');
     for iEvt = 1:length(EEG.event)
-        cond = EEG.event(iEvt).condition_number;
-        item = EEG.event(iEvt).item_number;
+        cond = normalize_numeric_value(EEG.event(iEvt).condition_number);
+        item = normalize_numeric_value(EEG.event(iEvt).item_number);
 
-        if isequal(cond, 0) || isequal(item, 0) || isempty(cond) || isempty(item)
+        if isempty(cond) || isempty(item) || isnan(cond) || isnan(item) || isequal(cond, 0) || isequal(item, 0)
+            invalidEventKeys = invalidEventKeys + 1;
             continue;
         end
 
         key = sprintf('%d_%d', cond, item);
+        validEventKeys = validEventKeys + 1;
         if ~rowMap.isKey(key)
+            if isKey(missingKeyMap, key)
+                missingKeyMap(key) = missingKeyMap(key) + 1;
+            else
+                missingKeyMap(key) = 1;
+            end
             continue;
+        end
+        if isKey(matchedKeyMap, key)
+            matchedKeyMap(key) = matchedKeyMap(key) + 1;
+        else
+            matchedKeyMap(key) = 1;
         end
 
         rowIdx = rowMap(key);
@@ -119,5 +155,79 @@ function EEG = import_ia_columns(EEG, txtFilePath, condColName, itemColName, sel
         EEG.eyesort_imported_columns = selectedColumns;
     end
 
+    importDiagnostics = struct();
+    importDiagnostics.selected_columns = selectedColumns;
+    importDiagnostics.valid_text_rows = rowMap.Count;
+    importDiagnostics.invalid_text_rows = invalidRows;
+    importDiagnostics.invalid_event_keys = invalidEventKeys;
+    importDiagnostics.valid_event_keys = validEventKeys;
+    importDiagnostics.assigned_events = assignedEvents;
+    importDiagnostics.matched_keys = sort(matchedKeyMap.keys);
+    importDiagnostics.missing_keys = sort(missingKeyMap.keys);
+    importDiagnostics.unused_text_keys = setdiff(sort(rowMap.keys), importDiagnostics.matched_keys);
+    EEG.eyesort_import_diagnostics = importDiagnostics;
+
+    diagnostics = struct('severity', {}, 'inputName', {}, 'fieldName', {}, ...
+        'userValue', {}, 'message', {}, 'suggestion', {});
+    if validEventKeys == 0
+        diagnostics(end+1) = struct( ...
+            'severity', 'error', ...
+            'inputName', 'IA column import', ...
+            'fieldName', 'condition_number / item_number', ...
+            'userValue', '', ...
+            'message', 'No EEG events had valid condition_number and item_number values to match against the IA file.', ...
+            'suggestion', 'Run Step 2 successfully first and check trigger diagnostics if condition/item values are all zero.');
+    elseif assignedEvents == 0
+        shownFileKeys = importDiagnostics.unused_text_keys(1:min(10, length(importDiagnostics.unused_text_keys)));
+        diagnostics(end+1) = struct( ...
+            'severity', 'error', ...
+            'inputName', 'IA column import', ...
+            'fieldName', sprintf('%s x %s', condColName, itemColName), ...
+            'userValue', strjoin(shownFileKeys, ', '), ...
+            'message', 'No EEG event condition/item keys matched rows in the IA file, so no columns were imported.', ...
+            'suggestion', 'Check that the IA file condition/item columns use the same numeric values produced by Step 2 trigger matching.');
+    elseif ~isempty(importDiagnostics.missing_keys)
+        shownMissing = importDiagnostics.missing_keys(1:min(10, length(importDiagnostics.missing_keys)));
+        diagnostics(end+1) = struct( ...
+            'severity', 'warning', ...
+            'inputName', 'IA column import', ...
+            'fieldName', sprintf('%s x %s', condColName, itemColName), ...
+            'userValue', strjoin(shownMissing, ', '), ...
+            'message', sprintf('%d EEG condition/item key(s) were not found in the IA file and were skipped.', length(importDiagnostics.missing_keys)), ...
+            'suggestion', 'Check whether the IA file is missing stimuli or whether trigger-derived condition/item values are incorrect.');
+    end
+
+    report_diagnostics(diagnostics, 'EyeSort IA Column Import Diagnostics', 'command');
+
     fprintf('Imported %d column(s) into %d event(s).\n', length(selectedColumns), assignedEvents);
+end
+
+function value = normalize_numeric_value(inputValue)
+    if iscell(inputValue)
+        if isempty(inputValue)
+            value = NaN;
+            return;
+        end
+        inputValue = inputValue{1};
+    end
+    if isnumeric(inputValue)
+        if isempty(inputValue)
+            value = NaN;
+        else
+            value = double(inputValue);
+        end
+    elseif ischar(inputValue)
+        value = str2double(inputValue);
+    elseif isstring(inputValue)
+        value = str2double(char(inputValue));
+    else
+        try
+            value = str2double(char(inputValue));
+        catch
+            value = NaN;
+        end
+    end
+    if isempty(value)
+        value = NaN;
+    end
 end

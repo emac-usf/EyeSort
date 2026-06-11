@@ -765,6 +765,7 @@ function [EEG, com] = pop_label_datasets(EEG)
     function apply_all_labels_single()
         nLabels = length(pending_labels);
         matched_counts = zeros(1, nLabels);
+        label_diagnostics = cell(1, nLabels);
         
         % Read the session-wide event format selection
         selectedEventFormat = get_selected_event_format();
@@ -797,6 +798,9 @@ function [EEG, com] = pop_label_datasets(EEG)
                     saved_conflict_resolution = chosen;
                 end
                 matched_counts(qi) = EEG.eyesort_last_label_matched_count;
+                if isfield(EEG, 'eyesort_last_label_diagnostics')
+                    label_diagnostics{qi} = EEG.eyesort_last_label_diagnostics;
+                end
                 assignin('base', 'EEG', EEG);
             end
         catch ME
@@ -861,7 +865,11 @@ function [EEG, com] = pop_label_datasets(EEG)
             if matched_counts(qi) > 0
                 summaryLines{qi} = sprintf('  Label %02d (%s): %d event(s) matched', qi, desc, matched_counts(qi));
             else
-                summaryLines{qi} = sprintf('  Label %02d (%s): WARNING — 0 events matched', qi, desc);
+                diagnosticText = '';
+                if ~isempty(label_diagnostics{qi}) && isfield(label_diagnostics{qi}, 'summary')
+                    diagnosticText = sprintf('\n    %s', strrep(label_diagnostics{qi}.summary, sprintf('\n'), sprintf('\n    ')));
+                end
+                summaryLines{qi} = sprintf('  Label %02d (%s): WARNING - 0 events matched%s', qi, desc, diagnosticText);
             end
         end
 

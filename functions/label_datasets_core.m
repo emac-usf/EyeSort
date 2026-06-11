@@ -448,6 +448,21 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
 
     % Get fixation indices
     fixationIndices = find(isFixation);
+    labelDiagnostics = struct( ...
+        'candidate_fixation_events', length(fixationIndices), ...
+        'dropped_not_fixation', 0, ...
+        'dropped_condition', 0, ...
+        'dropped_item', 0, ...
+        'dropped_time_locked_region', 0, ...
+        'dropped_pass_option', 0, ...
+        'dropped_previous_region', 0, ...
+        'dropped_next_region', 0, ...
+        'dropped_fixation_option', 0, ...
+        'dropped_saccade_in', 0, ...
+        'dropped_saccade_out', 0, ...
+        'conflicting_events', 0, ...
+        'matched_events', 0, ...
+        'summary', '');
 
     % Extract next region visited field for all events
     if isfield(EEG.event, 'next_region_visited')
@@ -560,18 +575,21 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
         % Check basic labels first (fastest)
         % Check if this is a fixation event or a previously coded fixation event
         if ~isFixation(mm)
+            labelDiagnostics.dropped_not_fixation = labelDiagnostics.dropped_not_fixation + 1;
             continue;
         end
         
         % Check for condition and item labels (vectorized) - MUST match if specified
         if ~isempty(conditions)
             if conditionNumbers(mm) <= 0 || ~any(conditionNumbers(mm) == conditions)
+                labelDiagnostics.dropped_condition = labelDiagnostics.dropped_condition + 1;
                 continue;
             end
         end
         
         if ~isempty(items)
             if itemNumbers(mm) <= 0 || ~any(itemNumbers(mm) == items)
+                labelDiagnostics.dropped_item = labelDiagnostics.dropped_item + 1;
                 continue;
             end
         end
@@ -579,6 +597,7 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
         % Time-locked region label (vectorized) - MUST have valid region if specified
         if ~isempty(timeLockedRegions)
             if isempty(currentRegions{mm}) || ~any(strcmpi(currentRegions{mm}, timeLockedRegions))
+                labelDiagnostics.dropped_time_locked_region = labelDiagnostics.dropped_time_locked_region + 1;
                 continue;
             end
         end
@@ -617,12 +636,14 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
         end
         
         if ~passesPassIndex
+            labelDiagnostics.dropped_pass_option = labelDiagnostics.dropped_pass_option + 1;
             continue;
         end
         
         % Previous region labeling (optimized)
         if ~isempty(prevRegions)
             if isempty(lastRegionVisited{mm}) || ~any(strcmpi(lastRegionVisited{mm}, prevRegions))
+                labelDiagnostics.dropped_previous_region = labelDiagnostics.dropped_previous_region + 1;
                 continue;
             end
         end
@@ -630,6 +651,7 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
         % Next region labeling (using pre-computed field)
         if ~isempty(nextRegions)
             if isempty(nextRegionVisited{mm}) || ~any(strcmpi(nextRegionVisited{mm}, nextRegions))
+                labelDiagnostics.dropped_next_region = labelDiagnostics.dropped_next_region + 1;
                 continue;
             end
         end
@@ -733,6 +755,7 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
         end
         
         if ~passesFixationType
+            labelDiagnostics.dropped_fixation_option = labelDiagnostics.dropped_fixation_option + 1;
             continue;
         end
         
@@ -790,6 +813,7 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
         end
         
         if ~passesSaccadeInDirection
+            labelDiagnostics.dropped_saccade_in = labelDiagnostics.dropped_saccade_in + 1;
             continue;
         end
         
@@ -847,6 +871,7 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
         end
         
         if ~passesSaccadeOutDirection
+            labelDiagnostics.dropped_saccade_out = labelDiagnostics.dropped_saccade_out + 1;
             continue;
         end
         
@@ -892,6 +917,7 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                 'new_desc', labelDescription, ...
                 'condition', conditionNumbers(mm), ...
                 'region', currentRegions{mm});
+            labelDiagnostics.conflicting_events = labelDiagnostics.conflicting_events + 1;
             continue; % Skip this event instead of overwriting
         end
         
@@ -1140,16 +1166,63 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
     end
     
     % Store the number of matched events for reference
+    labelDiagnostics.matched_events = matchedEventCount;
+    labelDiagnostics.summary = build_label_diagnostic_summary(labelDiagnostics);
     labeledEEG.eyesort_last_label_matched_count = matchedEventCount;
+    labeledEEG.eyesort_last_label_diagnostics = labelDiagnostics;
     
     % Display results
     fprintf('Label code for this batch: %s\n', labelCode);
     if matchedEventCount == 0
         fprintf('Warning: No events matched your label criteria!\n');
+        fprintf('%s\n', labelDiagnostics.summary);
     else
         fprintf('Label applied successfully! Identified %d events matching label criteria.\n', matchedEventCount);
     end
     
+end
+
+function summary = build_label_diagnostic_summary(labelDiagnostics)
+    reasonNames = { ...
+        'condition filter', ...
+        'item filter', ...
+        'time-locked region filter', ...
+        'pass option filter', ...
+        'previous region filter', ...
+        'next region filter', ...
+        'fixation option filter', ...
+        'saccade-in filter', ...
+        'saccade-out filter', ...
+        'existing label conflicts'};
+    reasonCounts = [ ...
+        labelDiagnostics.dropped_condition, ...
+        labelDiagnostics.dropped_item, ...
+        labelDiagnostics.dropped_time_locked_region, ...
+        labelDiagnostics.dropped_pass_option, ...
+        labelDiagnostics.dropped_previous_region, ...
+        labelDiagnostics.dropped_next_region, ...
+        labelDiagnostics.dropped_fixation_option, ...
+        labelDiagnostics.dropped_saccade_in, ...
+        labelDiagnostics.dropped_saccade_out, ...
+        labelDiagnostics.conflicting_events];
+
+    lines = {sprintf('Candidate fixation events checked: %d', labelDiagnostics.candidate_fixation_events)};
+    [sortedCounts, order] = sort(reasonCounts, 'descend');
+    added = 0;
+    for i = 1:length(order)
+        if sortedCounts(i) <= 0
+            continue;
+        end
+        lines{end+1} = sprintf('Dropped by %s: %d', reasonNames{order(i)}, sortedCounts(i)); %#ok<AGROW>
+        added = added + 1;
+        if added >= 4
+            break;
+        end
+    end
+    if added == 0
+        lines{end+1} = 'No single filter recorded dropped candidates; check Step 2 diagnostics and event field names.'; %#ok<AGROW>
+    end
+    summary = strjoin(lines, sprintf('\n'));
 end
 
 %% Helper function: load_eyesort_config
