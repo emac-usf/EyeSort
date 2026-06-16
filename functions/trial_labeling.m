@@ -133,10 +133,7 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
 
     % Event processing loop
     for iEvt = 1:length(EEG.event)
-        eventType = EEG.event(iEvt).type;
-        if isnumeric(eventType)
-            eventType = num2str(eventType);
-        end
+        eventType = value_to_char(EEG.event(iEvt).type);
 
         % Remove spaces from event type; extract numeric part once for trigger matching
         eventTypeNoSpace = strrep(eventType, ' ', '');
@@ -585,25 +582,7 @@ end
 %% Helper function: flexibleTriggerMatch
 function isMatch = flexibleTriggerMatch(eventTrigger, configTrigger)
     % FLEXIBLETRIGGERMATCH - Flexible trigger code matching
-    % Handles cases where user enters "212" but data has "S212" or "R212"
-    % BUT "R212" does NOT match "S212" - different prefixes must match exactly
-    
-    % First try exact match
-    if strcmp(eventTrigger, configTrigger)
-        isMatch = true;
-        return;
-    end
-    
-    % Check if config (user input) is just numbers (no letter prefix)
-    configIsNumberOnly = ~isempty(regexp(configTrigger, '^\d+$', 'once'));
-    
-    if configIsNumberOnly
-        % User entered just numbers, so match any prefix in event data
-        eventNum = regexp(eventTrigger, '\d+', 'match', 'once');
-        configNum = regexp(configTrigger, '\d+', 'match', 'once');
-        isMatch = ~isempty(eventNum) && ~isempty(configNum) && strcmp(eventNum, configNum);
-    else
-        % User entered with prefix, must match exactly (already checked above)
-        isMatch = false;
-    end
+    % Does not assume any upstream prefix; exact user input wins, and
+    % numeric-only inputs may match the numeric portion of any event code.
+    isMatch = trigger_match(eventTrigger, configTrigger);
 end

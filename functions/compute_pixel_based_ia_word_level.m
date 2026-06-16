@@ -137,7 +137,7 @@ function EEG = compute_pixel_based_ia_word_level(EEG, txtFilePath, ...
                           'Item Triggers (comma-separated):'}, ...
                          'Input Trial/Trigger Information', ...
                          [1 50; 1 50; 1 50; 1 50], ...
-                         {'S254', 'S255', 'S224, S213, S221', 'S39, S8, S152'});
+                         {'254', '255', '224, 213, 221', '39, 8, 152'});
     
     if isempty(userInput)
         error('compute_pixel_based_ia_word_level: User cancelled input. Exiting function.');
@@ -147,6 +147,12 @@ function EEG = compute_pixel_based_ia_word_level(EEG, txtFilePath, ...
     endCode = userInput{2};
     conditionTriggers = strsplit(userInput{3}, ',');
     itemTriggers = strsplit(userInput{4}, ',');
+    conditionTriggers = strtrim(conditionTriggers);
+    itemTriggers = strtrim(itemTriggers);
+
+    [triggerDiagnostics, ~] = validate_triggers(EEG, startCode, endCode, ...
+        conditionTriggers, itemTriggers, '', '');
+    report_diagnostics(triggerDiagnostics, 'EyeSort Pixel IA Trigger Validation', 'command');
     
     % Process events and assign boundaries
     nEvents = length(EEG.event);
@@ -156,35 +162,28 @@ function EEG = compute_pixel_based_ia_word_level(EEG, txtFilePath, ...
     numAssigned = 0;
     
     for iEvt = 1:nEvents
-        eventType = EEG.event(iEvt).type;
-        if isnumeric(eventType)
-            eventType = num2str(eventType);
-        end
+        eventType = value_to_char(EEG.event(iEvt).type);
         
         % Handle trial start/end
-        if strcmp(eventType, startCode)
+        if trigger_match(eventType, startCode)
             trialRunning = true;
             currentItem = [];
             currentCond = [];
             continue;
-        elseif strcmp(eventType, endCode)
+        elseif trigger_match(eventType, endCode)
             trialRunning = false;
             continue;
         end
         
         % Process events within trial
         if trialRunning
-            % Remove all spaces for comparison
             eventTypeNoSpace = regexprep(eventType, '\s+', '');
-            itemTriggersNoSpace = cellfun(@(x) regexprep(x, '\s+', ''), itemTriggers, 'UniformOutput', false);
-            conditionTriggersNoSpace = cellfun(@(x) regexprep(x, '\s+', ''), conditionTriggers, 'UniformOutput', false);
             
-            % Compare without spaces
-            if any(strcmp(eventTypeNoSpace, itemTriggersNoSpace))
+            if any(cellfun(@(x) trigger_match(eventType, x), itemTriggers))
                 % Extract just the number
                 currentItem = str2double(regexp(eventTypeNoSpace, '\d+', 'match', 'once'));
             
-            elseif any(strcmp(eventTypeNoSpace, conditionTriggersNoSpace))
+            elseif any(cellfun(@(x) trigger_match(eventType, x), conditionTriggers))
                 % Extract just the number
                 currentCond = str2double(regexp(eventTypeNoSpace, '\d+', 'match', 'once'));
             
@@ -212,7 +211,8 @@ function EEG = compute_pixel_based_ia_word_level(EEG, txtFilePath, ...
     try
         EEG = trial_labeling_word_level(EEG, startCode, endCode, conditionTriggers, itemTriggers);
     catch ME
-        warning('Error in trial labeling: %s', ME.message);
+        warning('compute_pixel_based_ia_word_level:TrialLabelingError', ...
+            'Error in trial labeling: %s', ME.message);
     end
 end
 

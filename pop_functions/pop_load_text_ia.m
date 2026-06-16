@@ -190,7 +190,8 @@ function [EEG, com] = pop_load_text_ia(EEG)
         {'Style', 'pushbutton', 'String', 'Confirm', 'callback', @(~,~) confirm_button}, ...
     };
 
-     [~, ~, ~, hFig] = supergui('geomhoriz', geomhoriz, 'geomvert', geomvert, 'uilist', uilist, 'title', 'Text-Based Sentence Contents and Interest Areas');
+     [~, ~, ~] = supergui('geomhoriz', geomhoriz, 'geomvert', geomvert, 'uilist', uilist, 'title', 'Text-Based Sentence Contents and Interest Areas');
+    hFig = gcf; % Capture the actual figure handle immediately after supergui creates it
     
     % Initialize placeholders
     init_placeholders();
@@ -385,10 +386,10 @@ function [EEG, com] = pop_load_text_ia(EEG)
             % Save intermediate option (removed - now handled by button)
             
             % Sentence codes usage flag
-            config.useSentenceCodes = get(findobj(gcf, 'tag','chkUseSentenceCodes'), 'Value');
+            config.useSentenceCodes = get(findobj(hFig, 'tag','chkUseSentenceCodes'), 'Value');
             
             % RTL reading direction flag
-            config.rtl = get(findobj(gcf, 'tag','chkRTL'), 'Value');
+            config.rtl = get(findobj(hFig, 'tag','chkRTL'), 'Value');
             
             % Convert cell arrays to strings if necessary (except triggers which should stay as cell arrays)
             fields = fieldnames(config);
@@ -412,7 +413,7 @@ function [EEG, com] = pop_load_text_ia(EEG)
             % Text file selection
             if isfield(config, 'txtFileList') && ~isempty(config.txtFileList)
                 txtFileList = config.txtFileList;
-                set(findobj(gcf, 'tag','datasetList'), 'string', txtFileList, 'value', 1);
+                set(findobj(hFig, 'tag','datasetList'), 'string', txtFileList, 'value', 1);
             end
             
             % Apply all text field values
@@ -440,13 +441,13 @@ function [EEG, com] = pop_load_text_ia(EEG)
             % Save intermediate option removed - now handled by button
             
             if isfield(config, 'useSentenceCodes')
-                set(findobj(gcf, 'tag', 'chkUseSentenceCodes'), 'Value', config.useSentenceCodes);
+                set(findobj(hFig, 'tag', 'chkUseSentenceCodes'), 'Value', config.useSentenceCodes);
                 % Trigger the callback to enable/disable sentence code fields
                 toggle_sentence_codes();
             end
             
             if isfield(config, 'rtl')
-                set(findobj(gcf, 'tag', 'chkRTL'), 'Value', config.rtl);
+                set(findobj(hFig, 'tag', 'chkRTL'), 'Value', config.rtl);
             end
             
             config_fields = fieldnames(field_mapping);
@@ -619,7 +620,7 @@ function [EEG, com] = pop_load_text_ia(EEG)
         end
         
         % Check if user wants to use sentence codes
-        useSentenceCodes = get(findobj(gcf, 'tag','chkUseSentenceCodes'), 'Value');
+        useSentenceCodes = get(findobj(hFig, 'tag','chkUseSentenceCodes'), 'Value');
         if useSentenceCodes
             sentenceStartCodeStr = get_user_input('edtSentenceStartCode');
             sentenceEndCodeStr = get_user_input('edtSentenceEndCode');
@@ -710,7 +711,17 @@ function [EEG, com] = pop_load_text_ia(EEG)
         end
 
         % Read RTL checkbox value
-        rtl = get(findobj(gcf, 'tag','chkRTL'), 'Value');
+        rtl = get(findobj(hFig, 'tag','chkRTL'), 'Value');
+
+        % Validate trigger inputs against the loaded dataset before processing.
+        % This catches format/key mismatches close to the user input fields.
+        [triggerDiagnostics, ~] = validate_triggers(EEG, startCodeStr, endCodeStr, ...
+            condTriggers, itemTriggers, sentenceStartCodeStr, sentenceEndCodeStr);
+        hasTriggerErrors = report_diagnostics(triggerDiagnostics, ...
+            'EyeSort Step 2 Trigger Validation', 'dialog');
+        if hasTriggerErrors
+            return;
+        end
         
         % Check save status - only show popup if there are warnings
         % Check intermediate dataset status
@@ -759,6 +770,8 @@ function [EEG, com] = pop_load_text_ia(EEG)
                 h = waitbar(0, 'Processing Text IA for all datasets...', 'Name', 'Batch Text IA Processing');
                 processed_count = 0;
                 failed_count = 0;
+                shownAssignmentDialog = false;
+                batchAssignmentWarnings = false;
                 
                 % Get save intermediate option from global variables
                 try
@@ -778,14 +791,44 @@ function [EEG, com] = pop_load_text_ia(EEG)
                         
                         % Variables already validated as characters above
                         
-                        % Process with Text IA
+                        % Process with Text IA (suppress duplicate CLI diagnostics — GUI
+                        % pre-check already ran report_diagnostics in 'dialog' mode above)
                         processedEEG = compute_text_based_ia(currentEEG, txtFilePath, offset, pxPerChar, ...
                                               numRegions, regionNames, conditionColName, ...
                                               itemColName, startCodeStr, endCodeStr, condTriggers, itemTriggers, ...
                                               fixationTypeStr, fixationXFieldStr, saccadeTypeStr, ...
                                               saccadeStartXFieldStr, saccadeEndXFieldStr, ...
                                               sentenceStartCodeStr, sentenceEndCodeStr, conditionTypeColNames, ...
-                                              'rtl', rtl, 'batch_mode', true);
+                                              'rtl', rtl, 'batch_mode', true, 'reportMode', 'none');
+                        
+                        % Show assignment diagnostics dialog for the first affected dataset
+                        skipDataset = false;
+                        if isfield(processedEEG, 'eyesort_step2_diagnostics')
+                            assignDiag = interest_area_assignment_diagnostics( ...
+                                processedEEG.eyesort_step2_diagnostics, ...
+                                conditionColName, itemColName, ...
+                                strjoin(condTriggers, ', '), strjoin(itemTriggers, ', '));
+                            if ~isempty(assignDiag)
+                                batchAssignmentWarnings = true;
+                                if ~shownAssignmentDialog
+                                    report_diagnostics(assignDiag, ...
+                                        'EyeSort Step 2 Assignment Diagnostics', 'dialog');
+                                    shownAssignmentDialog = true;
+                                end
+                                if any(strcmpi({assignDiag.severity}, 'error'))
+                                    skipDataset = true;
+                                end
+                            end
+                        end
+                        
+                        if skipDataset
+                            warning('EYESORT:AssignmentError', ...
+                                'Skipping dataset %s: zero interest-area boundaries assigned.', ...
+                                batchFilenames{i});
+                            failed_count = failed_count + 1;
+                            clear currentEEG processedEEG;
+                            continue;
+                        end
                         
                         % Save intermediate dataset if requested
                         if saveIntermediate
@@ -852,11 +895,15 @@ function [EEG, com] = pop_load_text_ia(EEG)
                         processedEEG = EEG; % Use original
                 end
                 
-                h_msg = msgbox(sprintf('Text IA processing complete!\n\nProcessed: %d datasets\nFailed: %d datasets\n\nNow proceed to step 3 (Eye-Tracking Event Labeling) to apply labels.', processed_count, failed_count), 'Batch Processing Complete');
+                batchNote = '';
+                if batchAssignmentWarnings
+                    batchNote = sprintf('\n\nNote: Assignment diagnostics were found in at least one dataset. Additional datasets may have similar issues — check the Command Window or re-run in single-dataset mode.');
+                end
+                h_msg = msgbox(sprintf('Text IA processing complete!\n\nProcessed: %d datasets\nFailed: %d datasets\n\nNow proceed to step 3 (Eye-Tracking Event Labeling) to apply labels.%s', processed_count, failed_count, batchNote), 'Batch Processing Complete');
                 waitfor(h_msg); % Wait for user to close the message box
                 
                 % Close GUI after batch processing completion
-                close(gcf);
+                close(hFig);
                 return; % Add return to prevent duplicate auto-save
                 
             else
@@ -864,19 +911,35 @@ function [EEG, com] = pop_load_text_ia(EEG)
                 h = waitbar(0, 'Processing interest areas...', 'Name', 'Text IA Processing');
                 try
                     waitbar(0.3, h, 'Assigning fixations and saccades to interest area regions...');
+                    % Suppress duplicate CLI diagnostics — trigger pre-check dialog ran above
                     processedEEG = compute_text_based_ia(EEG, txtFilePath, offset, pxPerChar, ...
                                               numRegions, regionNames, conditionColName, ...
                                               itemColName, startCodeStr, endCodeStr, condTriggers, itemTriggers, ...
                                               fixationTypeStr, fixationXFieldStr, saccadeTypeStr, ...
                                               saccadeStartXFieldStr, saccadeEndXFieldStr, ...
                                               sentenceStartCodeStr, sentenceEndCodeStr, conditionTypeColNames, ...
-                                              'rtl', rtl);
+                                              'rtl', rtl, 'reportMode', 'none');
                     waitbar(1, h, 'Done!');
                 catch ME
                     delete(h);
                     rethrow(ME);
                 end
                 delete(h);
+                
+                % Show assignment diagnostics dialog (warnings and zero-assignment errors)
+                if isfield(processedEEG, 'eyesort_step2_diagnostics')
+                    assignDiag = interest_area_assignment_diagnostics( ...
+                        processedEEG.eyesort_step2_diagnostics, ...
+                        conditionColName, itemColName, ...
+                        strjoin(condTriggers, ', '), strjoin(itemTriggers, ', '));
+                    if ~isempty(assignDiag)
+                        report_diagnostics(assignDiag, ...
+                            'EyeSort Step 2 Assignment Diagnostics', 'dialog');
+                        if any(strcmpi({assignDiag.severity}, 'error'))
+                            return;
+                        end
+                    end
+                end
                 
                 % Save intermediate dataset if requested
                 try
@@ -927,7 +990,7 @@ function [EEG, com] = pop_load_text_ia(EEG)
                      txtFilePath, offset, pxPerChar);
 
             % Close GUI
-            close(gcf);
+            close(hFig);
             
         catch ME
             errordlg(['Error: ' ME.message], 'Error');
@@ -939,7 +1002,7 @@ function [EEG, com] = pop_load_text_ia(EEG)
     function init_placeholders()
         tags = {'edtOffset','edtPxPerChar','edtNumRegions','edtRegionNames','edtCondType','edtCondName','edtItemName','edtStartCode','edtEndCode','edtSentenceStartCode','edtSentenceEndCode','edtCondTriggers','edtItemTriggers'};
         for i = 1:length(tags)
-            h = findobj(gcf, 'Tag', tags{i});
+            h = findobj(hFig, 'Tag', tags{i});
             if ~isempty(h)
                 placeholder_callback(h, []);
             end
@@ -969,7 +1032,7 @@ function [EEG, com] = pop_load_text_ia(EEG)
 
     % Get actual user input (empty if placeholder is showing)
     function value = get_user_input(tag)
-        h = findobj(gcf, 'Tag', tag);
+        h = findobj(hFig, 'Tag', tag);
         if isempty(h)
             value = [];
             return;

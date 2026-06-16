@@ -104,11 +104,16 @@ function generate_bdf_file(varargin)
     if length(EEG) > 1
         % Multiple datasets (ALLEEG)
         fprintf('Processing %d datasets...\n', length(EEG));
+        skippedDatasets = {};
         
         for i = 1:length(EEG)
             if ~isempty(EEG(i)) && isfield(EEG(i), 'event') && ~isempty(EEG(i).event)
                 fprintf('Extracting codes from dataset %d...\n', i);
                 [datasetCodes, datasetDescs] = extract_labeled_codes(EEG(i));
+                if isempty(datasetCodes)
+                    skippedDatasets{end+1} = sprintf('dataset %d', i); %#ok<AGROW>
+                    continue;
+                end
                 allCodes = [allCodes, datasetCodes];
                 % Merge descriptions
                 descFields = fieldnames(datasetDescs);
@@ -118,6 +123,11 @@ function generate_bdf_file(varargin)
                     end
                 end
             end
+        end
+        if ~isempty(skippedDatasets)
+            warning('generate_bdf_file:UnlabeledDatasets', ...
+                'Skipped %d dataset(s) with no labeled EyeSort events: %s', ...
+                length(skippedDatasets), strjoin(skippedDatasets, ', '));
         end
     else
         % Single dataset
@@ -338,6 +348,12 @@ function process_from_directory(directory, varargin)
             
             % Extract codes and descriptions
             [datasetCodes, datasetDescs] = extract_labeled_codes(tempEEG);
+            if isempty(datasetCodes)
+                warning('generate_bdf_file:UnlabeledDataset', ...
+                    'Skipping %s: no labeled EyeSort events were found.', processedFiles(i).name);
+                clear tempEEG;
+                continue;
+            end
             allCodes = [allCodes, datasetCodes];
             
             % Merge descriptions

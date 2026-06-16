@@ -130,8 +130,10 @@ function EEG = compute_text_based_ia(EEG, varargin)
             remaining_args = varargin(2:end);
             p = inputParser;
             addParameter(p, 'batch_mode', false, @islogical);
+            addParameter(p, 'reportMode', 'command', @ischar);
             parse(p, remaining_args{:});
             % batch_mode = p.Results.batch_mode; % Currently unused
+            reportMode = p.Results.reportMode;
             
         else
             % Individual parameters method (original)
@@ -172,9 +174,11 @@ function EEG = compute_text_based_ia(EEG, varargin)
             p = inputParser;
             addParameter(p, 'batch_mode', false, @islogical);
             addParameter(p, 'rtl', false, @(x) islogical(x) || isnumeric(x));
+            addParameter(p, 'reportMode', 'command', @ischar);
             parse(p, remaining_args{:});
             rtl = logical(p.Results.rtl);
             % batch_mode = p.Results.batch_mode; % Currently unused
+            reportMode = p.Results.reportMode;
         end
     else
         error('compute_text_based_ia: Either config file path or individual parameters must be provided.');
@@ -191,7 +195,7 @@ function EEG = compute_text_based_ia(EEG, varargin)
                                               numRegions, regionNames, conditionColName, itemColName, ...
                                               startCode, endCode, conditionTriggers, itemTriggers, ...
                                               fixationType, fixationXField, saccadeType, saccadeStartXField, saccadeEndXField, ...
-                                              sentenceStartCode, sentenceEndCode, conditionTypeColName, rtl);
+                                              sentenceStartCode, sentenceEndCode, conditionTypeColName, rtl, reportMode);
             
             % Store back in the array - NO SAVING
             EEG(idx) = currentEEG;
@@ -205,14 +209,14 @@ function EEG = compute_text_based_ia(EEG, varargin)
                                               numRegions, regionNames, conditionColName, itemColName, ...
                                               startCode, endCode, conditionTriggers, itemTriggers, ...
                                               fixationType, fixationXField, saccadeType, saccadeStartXField, saccadeEndXField, ...
-                                              sentenceStartCode, sentenceEndCode, conditionTypeColName, rtl);
+                                              sentenceStartCode, sentenceEndCode, conditionTypeColName, rtl, reportMode);
 end
 
 function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
                                               numRegions, regionNames, conditionColName, itemColName, ...
                                               startCode, endCode, conditionTriggers, itemTriggers, ...
                                               fixationType, fixationXField, saccadeType, saccadeStartXField, saccadeEndXField, ...
-                                              sentenceStartCode, sentenceEndCode, conditionTypeColName, rtl)
+                                              sentenceStartCode, sentenceEndCode, conditionTypeColName, rtl, reportMode)
     %% PROCESS_SINGLE_DATASET - Core processing function for interest areas
     %
     % This function processes a single EEG dataset, performing the following steps:
@@ -229,6 +233,9 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     end
     if nargin < 21
         rtl = false;
+    end
+    if nargin < 22
+        reportMode = 'command';
     end
     rtl = logical(rtl);
     
@@ -253,6 +260,10 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     fprintf('Condition column: %s, Item column: %s\n', conditionColName, itemColName);
     fprintf('Fixation event type: %s, X position field: %s\n', fixationType, fixationXField);
     fprintf('Saccade event type: %s, Start X field: %s, End X field: %s\n', saccadeType, saccadeStartXField, saccadeEndXField);
+
+    [triggerDiagnostics, triggerSummary] = validate_triggers(EEG, startCode, endCode, ...
+        conditionTriggers, itemTriggers, sentenceStartCode, sentenceEndCode);
+    report_diagnostics(triggerDiagnostics, 'EyeSort Step 2 Trigger Validation', reportMode);
 
     %% Step 2: Read the text file and prepare the data
     % Set up import options for the tab-delimited file
@@ -374,7 +385,12 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     for iRow = 1:height(data)
         try
             % Create a unique key based on condition and item numbers
-            key = sprintf('%d_%d', data.(conditionColName)(iRow), data.(itemColName)(iRow));
+            conditionValue = normalize_numeric_value(data.(conditionColName)(iRow));
+            itemValue = normalize_numeric_value(data.(itemColName)(iRow));
+            if isnan(conditionValue) || isnan(itemValue)
+                error('Invalid condition/item value in row %d.', iRow);
+            end
+            key = sprintf('%d_%d', conditionValue, itemValue);
             
             % Initialize variables for this row
             % LTR: currentPosition is the left edge of the first region
@@ -462,8 +478,7 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
             end
             condDesc = strjoin(condDescParts, ' ');
             % Get condition number for numeric storage
-            conditionNum = data.(conditionColName)(iRow);
-            if iscell(conditionNum), conditionNum = conditionNum{1}; end
+            conditionNum = conditionValue;
             % Store numeric code instead of string to avoid 7.3 format
             validKey = matlab.lang.makeValidName(['k_' key]);
             conditionDescMap.(validKey) = conditionNum; % Store numeric code
@@ -475,6 +490,11 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     end
     
     fprintf('Processed %d rows\n', height(data));
+    if boundaryMap.Count == 0
+        error(['No usable condition/item rows were built from the interest-area text file. ' ...
+               'Check that "%s" and "%s" contain numeric condition/item values and that the selected region columns contain valid text.'], ...
+              conditionColName, itemColName);
+    end
 
     %% Step 4: Assign region boundaries to EEG events
     % Initialize region and word boundary fields in all events
@@ -493,6 +513,24 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     % Process EEG events to assign boundaries
     fprintf('Processing EEG events for boundary assignment...\n');
     numAssigned = 0;
+    step2Diagnostics = struct();
+    step2Diagnostics.trigger_summary = triggerSummary;
+    step2Diagnostics.text_file_keys = sort(boundaryMap.keys);
+    step2Diagnostics.trial_start_matches = 0;
+    step2Diagnostics.trial_end_matches = 0;
+    step2Diagnostics.condition_trigger_matches = 0;
+    step2Diagnostics.item_trigger_matches = 0;
+    step2Diagnostics.complete_key_events = 0;
+    step2Diagnostics.assigned_boundary_events = 0;
+    step2Diagnostics.events_without_complete_key = 0;
+    step2Diagnostics.events_missing_text_key = 0;
+    step2Diagnostics.fixation_events_seen = 0;
+    step2Diagnostics.saccade_events_seen = 0;
+    step2Diagnostics.fixations_assigned_to_region = 0;
+    step2Diagnostics.missing_x_field_events = 0;
+    step2Diagnostics.invalid_x_position_events = 0;
+    eegKeyMap = containers.Map('KeyType', 'char', 'ValueType', 'double');
+    missingKeyMap = containers.Map('KeyType', 'char', 'ValueType', 'double');
     
     % Variables to track the current trial context
     currentItem = [];
@@ -521,38 +559,56 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
 
     % Process each event in the EEG structure
     for iEvt = 1:length(EEG.event)
-        eventType = EEG.event(iEvt).type;
+        eventType = value_to_char(EEG.event(iEvt).type);
         eventTypeNoSpace = strrep(eventType, ' ', '');
         eventNum = regexp(eventTypeNoSpace, '\d+', 'match', 'once');
+
+        isFixationEvent = startsWith(eventType, fixationType);
+        isSaccadeEvent = startsWith(eventType, saccadeType);
+        if isFixationEvent
+            step2Diagnostics.fixation_events_seen = step2Diagnostics.fixation_events_seen + 1;
+        elseif isSaccadeEvent
+            step2Diagnostics.saccade_events_seen = step2Diagnostics.saccade_events_seen + 1;
+        end
         
         % Check for trial start/end markers or trigger events
         if flexibleTriggerMatch(eventTypeNoSpace, startCodeNoSpace)
             % Trial start - reset tracking variables
+            step2Diagnostics.trial_start_matches = step2Diagnostics.trial_start_matches + 1;
             trialRunning = true;
             currentItem = [];
             currentCond = [];
             lastValidKey = '';
         elseif flexibleTriggerMatch(eventTypeNoSpace, endCodeNoSpace)
             % Trial end
+            step2Diagnostics.trial_end_matches = step2Diagnostics.trial_end_matches + 1;
             trialRunning = false;
         elseif trialRunning
             % Check if it's an item trigger (vectorized: exact match OR numeric part match)
             if any(strcmp(eventTypeNoSpace, itemTriggersNoSpace)) || ...
                (~isempty(eventNum) && any(itemIsNumOnly & strcmp(eventNum, itemConfigNums)))
+                step2Diagnostics.item_trigger_matches = step2Diagnostics.item_trigger_matches + 1;
                 currentItem = str2double(eventNum);
             % Check if it's a condition trigger (vectorized: exact match OR numeric part match)
             elseif any(strcmp(eventTypeNoSpace, conditionTriggersNoSpace)) || ...
                    (~isempty(eventNum) && any(condIsNumOnly & strcmp(eventNum, condConfigNums)))
+                step2Diagnostics.condition_trigger_matches = step2Diagnostics.condition_trigger_matches + 1;
                 currentCond = str2double(eventNum);
             end
             
             % If we have both condition and item, create a valid lookup key
             if ~isempty(currentItem) && ~isempty(currentCond)
                 lastValidKey = sprintf('%d_%d', currentCond, currentItem);
+                step2Diagnostics.complete_key_events = step2Diagnostics.complete_key_events + 1;
+                if isKey(eegKeyMap, lastValidKey)
+                    eegKeyMap(lastValidKey) = eegKeyMap(lastValidKey) + 1;
+                else
+                    eegKeyMap(lastValidKey) = 1;
+                end
             end
         end
 
-                % If we're in a valid trial with a known stimulus, assign boundaries to events
+        % If we're in a valid trial with a known stimulus, assign boundaries to events
         if trialRunning && ~isempty(lastValidKey)
             % Assign region boundaries if available for this stimulus
             if isKey(boundaryMap, lastValidKey)
@@ -571,11 +627,12 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
                 end
                 
                 % For fixation events, determine which region they fall within
-                if startsWith(EEG.event(iEvt).type, fixationType)
+                if isFixationEvent
                     % Get the fixation position using the user-specified field name
                     if isfield(EEG.event(iEvt), fixationXField)
                         fix_pos_x = EEG.event(iEvt).(fixationXField);
                     else
+                        step2Diagnostics.missing_x_field_events = step2Diagnostics.missing_x_field_events + 1;
                         warning('No x position field "%s" found for event %d. Skipping region assignment.', fixationXField, iEvt);
                         continue;
                     end
@@ -588,6 +645,7 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
                         fix_pos_x = str2double(fix_pos_x);
                     end
                     if ~isnumeric(fix_pos_x) || isnan(fix_pos_x)
+                        step2Diagnostics.invalid_x_position_events = step2Diagnostics.invalid_x_position_events + 1;
                         warning('Invalid %s at event %d. Skipping event.', fixationXField, iEvt);
                         continue;
                     end
@@ -606,11 +664,20 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
                         end
                         if inRegion
                             EEG.event(iEvt).current_region = r;
+                            step2Diagnostics.fixations_assigned_to_region = step2Diagnostics.fixations_assigned_to_region + 1;
                             break;
                         end
                     end
                 end
                 numAssigned = numAssigned + 1;
+                step2Diagnostics.assigned_boundary_events = step2Diagnostics.assigned_boundary_events + 1;
+            elseif isFixationEvent || isSaccadeEvent
+                step2Diagnostics.events_missing_text_key = step2Diagnostics.events_missing_text_key + 1;
+                if isKey(missingKeyMap, lastValidKey)
+                    missingKeyMap(lastValidKey) = missingKeyMap(lastValidKey) + 1;
+                else
+                    missingKeyMap(lastValidKey) = 1;
+                end
             end
 
             % Assign region words and raw text if available
@@ -631,10 +698,25 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
             if isKey(wordBoundsStructMap, lastValidKey)
                 EEG.event(iEvt).word_boundaries = wordBoundsStructMap(lastValidKey);
             end
+        elseif trialRunning && (isFixationEvent || isSaccadeEvent)
+            step2Diagnostics.events_without_complete_key = step2Diagnostics.events_without_complete_key + 1;
         end
     end
 
     fprintf('Finished processing EEG events. Assigned boundaries to %d events.\n', numAssigned);
+
+    eegKeys = sort(eegKeyMap.keys);
+    missingTextKeys = sort(missingKeyMap.keys);
+    unusedTextKeys = setdiff(sort(boundaryMap.keys), eegKeys);
+    step2Diagnostics.eeg_condition_item_keys = eegKeys;
+    step2Diagnostics.missing_text_file_keys = missingTextKeys;
+    step2Diagnostics.unused_text_file_keys = unusedTextKeys;
+    EEG.eyesort_step2_diagnostics = step2Diagnostics;
+
+    keyDiagnostics = interest_area_assignment_diagnostics(step2Diagnostics, ...
+        conditionColName, itemColName, ...
+        join_trigger_values(conditionTriggers), join_trigger_values(itemTriggers));
+    report_diagnostics(keyDiagnostics, 'EyeSort Step 2 Assignment Diagnostics', reportMode);
 
     %% Step 5: Perform detailed trial labeling
     % This calls trial_labeling function to identify first-pass reading, regressions, etc.
@@ -675,6 +757,63 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     end
     
     fprintf('\nProcessing complete! You can now Label the dataset using the Label Datasets option in the EyeSort menu.\n');
+end
+
+function value = normalize_numeric_value(inputValue)
+    if iscell(inputValue)
+        if isempty(inputValue)
+            value = NaN;
+            return;
+        end
+        inputValue = inputValue{1};
+    end
+    if isnumeric(inputValue)
+        if isempty(inputValue)
+            value = NaN;
+        else
+            value = double(inputValue);
+        end
+    elseif ischar(inputValue)
+        value = str2double(inputValue);
+    elseif isstring(inputValue)
+        value = str2double(char(inputValue));
+    else
+        try
+            value = str2double(char(inputValue));
+        catch
+            value = NaN;
+        end
+    end
+    if isempty(value)
+        value = NaN;
+    end
+end
+
+function out = join_trigger_values(values)
+    if isempty(values)
+        out = '';
+        return;
+    end
+    if ~iscell(values)
+        values = {values};
+    end
+    parts = cell(1, length(values));
+    for i = 1:length(values)
+        if isnumeric(values{i})
+            parts{i} = num2str(values{i});
+        elseif ischar(values{i})
+            parts{i} = values{i};
+        elseif isstring(values{i})
+            parts{i} = char(values{i});
+        else
+            try
+                parts{i} = char(values{i});
+            catch
+                parts{i} = '';
+            end
+        end
+    end
+    out = strjoin(parts, ', ');
 end
 
 %% Helper function: findBestColumnMatch
@@ -728,27 +867,9 @@ end
 %% Helper function: flexibleTriggerMatch
 function isMatch = flexibleTriggerMatch(eventTrigger, configTrigger)
     % FLEXIBLETRIGGERMATCH - Flexible trigger code matching
-    % Handles cases where user enters "212" but data has "S212" or "R212"
-    % BUT "R212" does NOT match "S212" - different prefixes must match exactly
-    
-    % First try exact match
-    if strcmp(eventTrigger, configTrigger)
-        isMatch = true;
-        return;
-    end
-    
-    % Check if config (user input) is just numbers (no letter prefix)
-    configIsNumberOnly = ~isempty(regexp(configTrigger, '^\d+$', 'once'));
-    
-    if configIsNumberOnly
-        % User entered just numbers, so match any prefix in event data
-        eventNum = regexp(eventTrigger, '\d+', 'match', 'once');
-        configNum = regexp(configTrigger, '\d+', 'match', 'once');
-        isMatch = ~isempty(eventNum) && ~isempty(configNum) && strcmp(eventNum, configNum);
-    else
-        % User entered with prefix, must match exactly (already checked above)
-        isMatch = false;
-    end
+    % Does not assume any upstream prefix; exact user input wins, and
+    % numeric-only inputs may match the numeric portion of any event code.
+    isMatch = trigger_match(eventTrigger, configTrigger);
 end
 
 %% Helper function: load_eyesort_config

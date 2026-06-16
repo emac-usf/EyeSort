@@ -333,14 +333,39 @@ function [EEG, com] = pop_import_ia_columns(EEG)
         end
 
         modifiedCount = 0;
+        shownImportDialog = false;
+        hasImportErrors = false;
+
         for i = 1:length(localALLEEG)
             if isfield(localALLEEG(i), 'eyesort_processed') && localALLEEG(i).eyesort_processed
                 try
-                    localALLEEG(i) = import_ia_columns(localALLEEG(i), filePath, condColName, itemColName, selectedCols);
+                    localALLEEG(i) = import_ia_columns(localALLEEG(i), filePath, condColName, itemColName, selectedCols, 'none');
                     modifiedCount = modifiedCount + 1;
+                    % Show diagnostic dialog for the first affected dataset;
+                    % always track error severity regardless of dialog state.
+                    if isfield(localALLEEG(i), 'eyesort_import_diagnostics')
+                        importDiag = import_column_diagnostics( ...
+                            localALLEEG(i).eyesort_import_diagnostics, condColName, itemColName);
+                        if ~isempty(importDiag)
+                            if any(strcmpi({importDiag.severity}, 'error'))
+                                hasImportErrors = true;
+                            end
+                            if ~shownImportDialog
+                                report_diagnostics(importDiag, 'EyeSort IA Column Import Diagnostics', 'dialog');
+                                shownImportDialog = true;
+                            end
+                        end
+                    end
                 catch ME
-                    warning('Failed to import columns for dataset %d (%s): %s', ...
-                        i, localALLEEG(i).filename, ME.message);
+                    if ~shownImportDialog
+                        errordlg(sprintf('Failed to import columns for dataset %d (%s):\n%s', ...
+                            i, localALLEEG(i).filename, ME.message), 'EyeSort - Import Error');
+                        shownImportDialog = true;
+                    else
+                        warning('EYESORT:ImportError', 'Failed to import columns for dataset %d (%s): %s', ...
+                            i, localALLEEG(i).filename, ME.message);
+                    end
+                    hasImportErrors = true;
                 end
             end
         end
@@ -353,20 +378,31 @@ function [EEG, com] = pop_import_ia_columns(EEG)
         catch
         end
 
-        msgbox(sprintf('Successfully imported %d column(s) into %d dataset(s).', ...
-            length(selectedCols), modifiedCount), 'EyeSort - Import Complete');
+        if modifiedCount == 0
+            if ~hasImportErrors
+                errordlg('No datasets were modified. Ensure Step 2 has been run on the loaded datasets.', 'EyeSort - Import Complete');
+            end
+        elseif hasImportErrors
+            msgbox(sprintf('Imported %d column(s) into %d dataset(s) with some warnings or errors.\n\nCheck the diagnostic dialog and Command Window for details.', ...
+                length(selectedCols), modifiedCount), 'EyeSort - Import Complete');
+        else
+            msgbox(sprintf('Successfully imported %d column(s) into %d dataset(s).', ...
+                length(selectedCols), modifiedCount), 'EyeSort - Import Complete');
+        end
     end
 
     function importBatch(filePath, condColName, itemColName, selectedCols, bPaths, bNames)
         h = waitbar(0, 'Importing columns into batch datasets...', 'Name', 'EyeSort - Import');
         successCount = 0;
+        shownImportDialog = false;
+        hasImportErrors = false;
 
         for i = 1:length(bPaths)
             waitbar(i / length(bPaths), h, sprintf('Processing %d of %d: %s', ...
                 i, length(bPaths), strrep(bNames{i}, '_', ' ')));
 
             if ~exist(bPaths{i}, 'file')
-                warning('File not found, skipping: %s', bPaths{i});
+                warning('EYESORT:FileNotFound', 'File not found, skipping: %s', bPaths{i});
                 continue;
             end
 
@@ -374,11 +410,27 @@ function [EEG, com] = pop_import_ia_columns(EEG)
                 batchEEG = pop_loadset('filename', bPaths{i});
 
                 if ~isfield(batchEEG, 'eyesort_processed') || ~batchEEG.eyesort_processed
-                    warning('Dataset not processed, skipping: %s', bNames{i});
+                    warning('EYESORT:NotProcessed', 'Dataset not processed, skipping: %s', bNames{i});
                     continue;
                 end
 
-                batchEEG = import_ia_columns(batchEEG, filePath, condColName, itemColName, selectedCols);
+                batchEEG = import_ia_columns(batchEEG, filePath, condColName, itemColName, selectedCols, 'none');
+
+                % Show diagnostic dialog for the first affected dataset;
+                % always track error severity regardless of dialog state.
+                if isfield(batchEEG, 'eyesort_import_diagnostics')
+                    importDiag = import_column_diagnostics( ...
+                        batchEEG.eyesort_import_diagnostics, condColName, itemColName);
+                    if ~isempty(importDiag)
+                        if any(strcmpi({importDiag.severity}, 'error'))
+                            hasImportErrors = true;
+                        end
+                        if ~shownImportDialog
+                            report_diagnostics(importDiag, 'EyeSort IA Column Import Diagnostics', 'dialog');
+                            shownImportDialog = true;
+                        end
+                    end
+                end
 
                 % Save back to the same path
                 pop_saveset(batchEEG, 'filename', bPaths{i}, 'savemode', 'twofiles');
@@ -386,12 +438,28 @@ function [EEG, com] = pop_import_ia_columns(EEG)
 
                 clear batchEEG;
             catch ME
-                warning('Failed to process %s: %s', bNames{i}, ME.message);
+                if ~shownImportDialog
+                    errordlg(sprintf('Failed to import columns for %s:\n%s', bNames{i}, ME.message), ...
+                        'EyeSort - Import Error');
+                    shownImportDialog = true;
+                else
+                    warning('EYESORT:ImportError', 'Failed to process %s: %s', bNames{i}, ME.message);
+                end
+                hasImportErrors = true;
             end
         end
 
         delete(h);
-        msgbox(sprintf('Successfully imported %d column(s) into %d of %d batch dataset(s).', ...
-            length(selectedCols), successCount, length(bPaths)), 'EyeSort - Import Complete');
+        if successCount == 0
+            if ~hasImportErrors
+                errordlg('No datasets were modified. Ensure Step 2 has been run on the batch datasets.', 'EyeSort - Import Complete');
+            end
+        elseif hasImportErrors
+            msgbox(sprintf('Imported %d column(s) into %d of %d batch dataset(s) with some warnings or errors.\n\nCheck the diagnostic dialog and Command Window for details.', ...
+                length(selectedCols), successCount, length(bPaths)), 'EyeSort - Import Complete');
+        else
+            msgbox(sprintf('Successfully imported %d column(s) into %d of %d batch dataset(s).', ...
+                length(selectedCols), successCount, length(bPaths)), 'EyeSort - Import Complete');
+        end
     end
 end
