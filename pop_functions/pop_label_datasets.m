@@ -862,13 +862,13 @@ function [EEG, com] = pop_label_datasets(EEG)
             if isfield(pending_labels{qi}, 'labelDescription')
                 desc = pending_labels{qi}.labelDescription;
             end
+            diagnosticText = '';
+            if ~isempty(label_diagnostics{qi}) && isfield(label_diagnostics{qi}, 'summary')
+                diagnosticText = sprintf('\n    %s', strrep(label_diagnostics{qi}.summary, sprintf('\n'), sprintf('\n    ')));
+            end
             if matched_counts(qi) > 0
-                summaryLines{qi} = sprintf('  Label %02d (%s): %d event(s) matched', qi, desc, matched_counts(qi));
+                summaryLines{qi} = sprintf('  Label %02d (%s): %d event(s) matched%s', qi, desc, matched_counts(qi), diagnosticText);
             else
-                diagnosticText = '';
-                if ~isempty(label_diagnostics{qi}) && isfield(label_diagnostics{qi}, 'summary')
-                    diagnosticText = sprintf('\n    %s', strrep(label_diagnostics{qi}.summary, sprintf('\n'), sprintf('\n    ')));
-                end
                 summaryLines{qi} = sprintf('  Label %02d (%s): WARNING - 0 events matched%s', qi, desc, diagnosticText);
             end
         end

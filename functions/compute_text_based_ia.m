@@ -130,8 +130,10 @@ function EEG = compute_text_based_ia(EEG, varargin)
             remaining_args = varargin(2:end);
             p = inputParser;
             addParameter(p, 'batch_mode', false, @islogical);
+            addParameter(p, 'reportMode', 'command', @ischar);
             parse(p, remaining_args{:});
             % batch_mode = p.Results.batch_mode; % Currently unused
+            reportMode = p.Results.reportMode;
             
         else
             % Individual parameters method (original)
@@ -172,9 +174,11 @@ function EEG = compute_text_based_ia(EEG, varargin)
             p = inputParser;
             addParameter(p, 'batch_mode', false, @islogical);
             addParameter(p, 'rtl', false, @(x) islogical(x) || isnumeric(x));
+            addParameter(p, 'reportMode', 'command', @ischar);
             parse(p, remaining_args{:});
             rtl = logical(p.Results.rtl);
             % batch_mode = p.Results.batch_mode; % Currently unused
+            reportMode = p.Results.reportMode;
         end
     else
         error('compute_text_based_ia: Either config file path or individual parameters must be provided.');
@@ -191,7 +195,7 @@ function EEG = compute_text_based_ia(EEG, varargin)
                                               numRegions, regionNames, conditionColName, itemColName, ...
                                               startCode, endCode, conditionTriggers, itemTriggers, ...
                                               fixationType, fixationXField, saccadeType, saccadeStartXField, saccadeEndXField, ...
-                                              sentenceStartCode, sentenceEndCode, conditionTypeColName, rtl);
+                                              sentenceStartCode, sentenceEndCode, conditionTypeColName, rtl, reportMode);
             
             % Store back in the array - NO SAVING
             EEG(idx) = currentEEG;
@@ -205,14 +209,14 @@ function EEG = compute_text_based_ia(EEG, varargin)
                                               numRegions, regionNames, conditionColName, itemColName, ...
                                               startCode, endCode, conditionTriggers, itemTriggers, ...
                                               fixationType, fixationXField, saccadeType, saccadeStartXField, saccadeEndXField, ...
-                                              sentenceStartCode, sentenceEndCode, conditionTypeColName, rtl);
+                                              sentenceStartCode, sentenceEndCode, conditionTypeColName, rtl, reportMode);
 end
 
 function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
                                               numRegions, regionNames, conditionColName, itemColName, ...
                                               startCode, endCode, conditionTriggers, itemTriggers, ...
                                               fixationType, fixationXField, saccadeType, saccadeStartXField, saccadeEndXField, ...
-                                              sentenceStartCode, sentenceEndCode, conditionTypeColName, rtl)
+                                              sentenceStartCode, sentenceEndCode, conditionTypeColName, rtl, reportMode)
     %% PROCESS_SINGLE_DATASET - Core processing function for interest areas
     %
     % This function processes a single EEG dataset, performing the following steps:
@@ -229,6 +233,9 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     end
     if nargin < 21
         rtl = false;
+    end
+    if nargin < 22
+        reportMode = 'command';
     end
     rtl = logical(rtl);
     
@@ -256,7 +263,7 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
 
     [triggerDiagnostics, triggerSummary] = validate_triggers(EEG, startCode, endCode, ...
         conditionTriggers, itemTriggers, sentenceStartCode, sentenceEndCode);
-    report_diagnostics(triggerDiagnostics, 'EyeSort Step 2 Trigger Validation', 'command');
+    report_diagnostics(triggerDiagnostics, 'EyeSort Step 2 Trigger Validation', reportMode);
 
     %% Step 2: Read the text file and prepare the data
     % Set up import options for the tab-delimited file
@@ -519,6 +526,7 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     step2Diagnostics.events_missing_text_key = 0;
     step2Diagnostics.fixation_events_seen = 0;
     step2Diagnostics.saccade_events_seen = 0;
+    step2Diagnostics.fixations_assigned_to_region = 0;
     step2Diagnostics.missing_x_field_events = 0;
     step2Diagnostics.invalid_x_position_events = 0;
     eegKeyMap = containers.Map('KeyType', 'char', 'ValueType', 'double');
@@ -656,6 +664,7 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
                         end
                         if inRegion
                             EEG.event(iEvt).current_region = r;
+                            step2Diagnostics.fixations_assigned_to_region = step2Diagnostics.fixations_assigned_to_region + 1;
                             break;
                         end
                     end
@@ -704,65 +713,10 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     step2Diagnostics.unused_text_file_keys = unusedTextKeys;
     EEG.eyesort_step2_diagnostics = step2Diagnostics;
 
-    keyDiagnostics = struct('severity', {}, 'inputName', {}, 'fieldName', {}, ...
-        'userValue', {}, 'message', {}, 'suggestion', {});
-
-    if numAssigned == 0
-        likelyCauses = {};
-        if step2Diagnostics.trial_start_matches == 0 || step2Diagnostics.trial_end_matches == 0
-            likelyCauses{end+1} = 'trial start/end codes did not identify any complete trial windows'; %#ok<AGROW>
-        end
-        if step2Diagnostics.condition_trigger_matches == 0 || step2Diagnostics.item_trigger_matches == 0
-            likelyCauses{end+1} = 'condition or item triggers did not match events inside trials'; %#ok<AGROW>
-        end
-        if step2Diagnostics.complete_key_events == 0
-            likelyCauses{end+1} = 'no complete condition/item keys were created from EEG events'; %#ok<AGROW>
-        end
-        if step2Diagnostics.events_missing_text_key > 0
-            likelyCauses{end+1} = 'EEG condition/item keys did not overlap with the interest-area text file'; %#ok<AGROW>
-        end
-        if step2Diagnostics.fixation_events_seen == 0 && step2Diagnostics.saccade_events_seen == 0
-            likelyCauses{end+1} = 'the fixation/saccade event type inputs did not match any EEG events'; %#ok<AGROW>
-        end
-        if step2Diagnostics.missing_x_field_events > 0 || step2Diagnostics.invalid_x_position_events > 0
-            likelyCauses{end+1} = 'fixation x-position field values were missing or invalid'; %#ok<AGROW>
-        end
-        if isempty(likelyCauses)
-            likelyCauses = {'the EEG events and interest-area file did not produce assignable trials'};
-        end
-        keyDiagnostics(end+1) = struct( ...
-            'severity', 'error', ...
-            'inputName', 'Step 2 interest-area assignment', ...
-            'fieldName', 'condition/item triggers and IA file rows', ...
-            'userValue', sprintf('Condition triggers: %s; Item triggers: %s', join_trigger_values(conditionTriggers), join_trigger_values(itemTriggers)), ...
-            'message', sprintf('No EEG events received interest-area boundaries. Counts: starts=%d, ends=%d, condition matches=%d, item matches=%d, complete keys=%d, missing IA keys=%d.', ...
-                step2Diagnostics.trial_start_matches, step2Diagnostics.trial_end_matches, ...
-                step2Diagnostics.condition_trigger_matches, step2Diagnostics.item_trigger_matches, ...
-                step2Diagnostics.complete_key_events, step2Diagnostics.events_missing_text_key), ...
-            'suggestion', sprintf('Likely cause(s): %s. Check trigger inputs, event field names, and condition/item values in the IA text file.', strjoin(likelyCauses, '; ')));
-    elseif ~isempty(missingTextKeys)
-        shownKeys = missingTextKeys(1:min(10, length(missingTextKeys)));
-        keyDiagnostics(end+1) = struct( ...
-            'severity', 'warning', ...
-            'inputName', 'Interest-area text file rows', ...
-            'fieldName', sprintf('%s x %s', conditionColName, itemColName), ...
-            'userValue', strjoin(shownKeys, ', '), ...
-            'message', sprintf('%d EEG condition/item key(s) did not exist in the interest-area text file, so affected events were skipped.', length(missingTextKeys)), ...
-            'suggestion', 'Check that the EEG condition/item trigger values overlap the condition and item columns in the IA text file.');
-    end
-
-    if ~isempty(unusedTextKeys)
-        shownUnused = unusedTextKeys(1:min(10, length(unusedTextKeys)));
-        keyDiagnostics(end+1) = struct( ...
-            'severity', 'warning', ...
-            'inputName', 'Unused interest-area text rows', ...
-            'fieldName', sprintf('%s x %s', conditionColName, itemColName), ...
-            'userValue', strjoin(shownUnused, ', '), ...
-            'message', sprintf('%d IA text-file key(s) were not observed in the EEG dataset.', length(unusedTextKeys)), ...
-            'suggestion', 'This is safe if the text file intentionally contains extra stimuli; otherwise check condition/item coding.');
-    end
-
-    report_diagnostics(keyDiagnostics, 'EyeSort Step 2 Assignment Diagnostics', 'command');
+    keyDiagnostics = interest_area_assignment_diagnostics(step2Diagnostics, ...
+        conditionColName, itemColName, ...
+        join_trigger_values(conditionTriggers), join_trigger_values(itemTriggers));
+    report_diagnostics(keyDiagnostics, 'EyeSort Step 2 Assignment Diagnostics', reportMode);
 
     %% Step 5: Perform detailed trial labeling
     % This calls trial_labeling function to identify first-pass reading, regressions, etc.

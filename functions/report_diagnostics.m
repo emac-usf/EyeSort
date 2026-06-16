@@ -9,6 +9,8 @@ function hasErrors = report_diagnostics(diagnostics, titleText, mode)
 % mode:
 %   'dialog'  - errordlg/warndlg for GUI entry points
 %   'command' - error/warning for batch and core functions
+%   'none'    - return hasErrors without any output (GUI callers that handle
+%               their own dialog suppress duplicate command-window messages)
 
     if nargin < 2 || isempty(titleText)
         titleText = 'EyeSort input diagnostics';
@@ -24,6 +26,11 @@ function hasErrors = report_diagnostics(diagnostics, titleText, mode)
 
     severities = {diagnostics.severity};
     hasErrors = any(strcmpi(severities, 'error'));
+
+    if strcmpi(mode, 'none')
+        return;
+    end
+
     msg = format_diagnostics(diagnostics, titleText);
 
     if strcmpi(mode, 'dialog')
