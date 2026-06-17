@@ -215,7 +215,6 @@ try
         if contains(file_path, 'eyesort_temp') && contains(file_path, '_textia_temp.set')
             if exist(file_path, 'file')
                 delete(file_path);
-                fprintf('Cleaned up temporary file: %s\n', file_path);
             end
         end
     end
@@ -224,7 +223,6 @@ try
     if exist(temp_dir, 'dir')
         try
             rmdir(temp_dir);
-            fprintf('Cleaned up temporary directory: %s\n', temp_dir);
         catch
             % Directory might not be empty or have permissions issues, ignore
         end

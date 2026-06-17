@@ -113,6 +113,7 @@ function [EEG, com] = pop_generate_bdf(EEG)
             % This allows it to find ALLEEG if available, or fall back to EEG
             % The function will handle its own file dialog
             generate_bdf_file();
+            update_eyesort_session_state('generateBDF', true);
             
             % Create command string for history
             com = sprintf('EEG = pop_generate_bdf(EEG);');

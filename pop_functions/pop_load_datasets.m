@@ -122,6 +122,7 @@ function [EEG, com] = pop_load_datasets(EEG)
 
     % Variables to store directory paths
     outputDir = '';
+    selectedDatasetDir = '';
 
 %% ----------------------- NestedCallback Functions --------------------------
 
@@ -152,6 +153,7 @@ function [EEG, com] = pop_load_datasets(EEG)
         end
         
         selected_datasets = [selected_datasets, new_paths];
+        selectedDatasetDir = path;
 
         % Update the listbox
         set(findobj(hFig, 'tag', 'datasetList'), ...
@@ -185,6 +187,7 @@ function [EEG, com] = pop_load_datasets(EEG)
         
         % Replace selected_datasets with directory contents
         selected_datasets = new_paths;
+        selectedDatasetDir = dir_path;
         
         % Update the listbox
         set(findobj(hFig, 'tag', 'datasetList'), ...
@@ -257,6 +260,15 @@ function [EEG, com] = pop_load_datasets(EEG)
         % Determine mode based on number of datasets
         num_datasets = numel(selected_datasets);
 
+        datasetDirs = cellfun(@(p) fileparts(p), selected_datasets, 'UniformOutput', false);
+        if numel(unique(datasetDirs)) > 1
+            errordlg(['All selected datasets must come from the same directory when saving a session script.', ...
+                char(10), 'Use Browse Directory for batch processing, or select files from one folder only.'], ...
+                'EyeSort - Mixed Dataset Directories');
+            return;
+        end
+        selectedDatasetDir = datasetDirs{1};
+
         % Retrieve ALLEEG, CURRENTSET from base if they exist
         try
             ALLEEG    = evalin('base', 'ALLEEG'); 
@@ -281,6 +293,9 @@ function [EEG, com] = pop_load_datasets(EEG)
             assignin('base', 'eyesort_batch_filenames', batchFileNames);
             assignin('base', 'eyesort_batch_output_dir', outputDir);
             assignin('base', 'eyesort_batch_mode', true);
+            update_eyesort_session_state('inputFiles', batchFilePaths, ...
+                'inputDir', selectedDatasetDir, 'batchMode', true, 'outputDir', outputDir, 'importColumns', {}, ...
+                'labelQueueConfigPath', '', 'conflictResolution', '');
             
             % Load only the first dataset for GUI display
             try
@@ -297,6 +312,7 @@ function [EEG, com] = pop_load_datasets(EEG)
             
             % Build command string for history
             com = sprintf('EEG = pop_load_datasets(EEG); %% Prepared %d datasets for batch processing', num_datasets);
+            record_eyesort_history(com);
             
             % Calculate approximate memory usage
             est_memory_mb = num_datasets * 200;
@@ -323,6 +339,9 @@ function [EEG, com] = pop_load_datasets(EEG)
             
             % Store output directory (required for auto-save after labeling)
             assignin('base', 'eyesort_single_output_dir', outputDir);
+            update_eyesort_session_state('inputFiles', selected_datasets, ...
+                'inputDir', selectedDatasetDir, 'batchMode', false, 'outputDir', outputDir, 'importColumns', {}, ...
+                'labelQueueConfigPath', '', 'conflictResolution', '');
             
             % Load the single dataset into ALLEEG
             dataset_path = selected_datasets{1};
@@ -358,6 +377,7 @@ function [EEG, com] = pop_load_datasets(EEG)
 
                 % Build command string for history
                 com = 'EEG = pop_load_datasets(EEG);';
+                record_eyesort_history(com, EEG);
 
                 % Show success message
                 msgbox(sprintf(['Success: Dataset loaded into EEGLAB.\n\n', ...

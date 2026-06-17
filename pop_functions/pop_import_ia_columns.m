@@ -99,8 +99,10 @@ function [EEG, com] = pop_import_ia_columns(EEG)
     cachedItemCol = '';
     cachedRegionNames = {};
 
-    % Get region names from current EEG
-    if batch_mode
+    % Get region names from the currently loaded reference dataset when possible.
+    if isfield(EEG, 'region_names')
+        cachedRegionNames = EEG.region_names;
+    elseif batch_mode
         try
             tempEEG = pop_loadset('filename', batchFilePaths{1});
             if isfield(tempEEG, 'region_names')
@@ -108,10 +110,6 @@ function [EEG, com] = pop_import_ia_columns(EEG)
             end
             clear tempEEG;
         catch
-        end
-    else
-        if isfield(EEG, 'region_names')
-            cachedRegionNames = EEG.region_names;
         end
     end
 
@@ -378,6 +376,12 @@ function [EEG, com] = pop_import_ia_columns(EEG)
         catch
         end
 
+        if modifiedCount > 0
+            update_eyesort_session_state('importFilePath', filePath, ...
+                'importCondColName', condColName, 'importItemColName', itemColName, ...
+                'importColumns', selectedCols);
+        end
+
         if modifiedCount == 0
             if ~hasImportErrors
                 errordlg('No datasets were modified. Ensure Step 2 has been run on the loaded datasets.', 'EyeSort - Import Complete');
@@ -450,6 +454,11 @@ function [EEG, com] = pop_import_ia_columns(EEG)
         end
 
         delete(h);
+        if successCount > 0
+            update_eyesort_session_state('importFilePath', filePath, ...
+                'importCondColName', condColName, 'importItemColName', itemColName, ...
+                'importColumns', selectedCols);
+        end
         if successCount == 0
             if ~hasImportErrors
                 errordlg('No datasets were modified. Ensure Step 2 has been run on the batch datasets.', 'EyeSort - Import Complete');
