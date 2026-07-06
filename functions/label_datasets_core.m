@@ -1016,6 +1016,15 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                 else
                     labeledEEG.event(mm).type = descType;
                 end
+            case 'description_index'
+                descType = build_description_type(conditionDesc, labelDescription);
+                if isempty(descType)
+                    labeledEEG.event(mm).type = newType;
+                elseif isfield(evt, 'current_word') && ischar(evt.current_word) && ~isempty(evt.current_word)
+                    labeledEEG.event(mm).type = [descType ' ' evt.current_word];
+                else
+                    labeledEEG.event(mm).type = descType;
+                end
             case 'region_content'
                 regionText = '';
                 if isfield(evt, 'current_word') && ischar(evt.current_word) && ~isempty(evt.current_word)
@@ -1133,6 +1142,15 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                             labeledEEG.event(evt_idx).type = new_code;
                         elseif ~isempty(cWordText)
                             labeledEEG.event(evt_idx).type = [descType ' ' cWordText];
+                        else
+                            labeledEEG.event(evt_idx).type = descType;
+                        end
+                    case 'description_index'
+                        descType = build_description_type(conditionDesc, labelDescription);
+                        if isempty(descType)
+                            labeledEEG.event(evt_idx).type = new_code;
+                        elseif isfield(cEvt, 'current_word') && ischar(cEvt.current_word) && ~isempty(cEvt.current_word)
+                            labeledEEG.event(evt_idx).type = [descType ' ' cEvt.current_word];
                         else
                             labeledEEG.event(evt_idx).type = descType;
                         end
