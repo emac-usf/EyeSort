@@ -125,6 +125,14 @@ function currvers = eegplugin_eyesort(fig, ~, ~)
             uimenu(submenu, 'label', 'Modify Event Code Format', 'separator', 'off', ...
                 'callback', @(src,event) try_callback(@pop_convert_event_codes, src, event));
             
+            historyScriptsMenu = uimenu(submenu, 'Label', 'History Scripts', ...
+                'separator', 'on', 'Tag', 'EyeSort_HistoryScripts', ...
+                'userdata', 'startup:on;continuous:on;epoch:on;study:on;erpset:on');
+
+            uimenu(historyScriptsMenu, 'Label', 'Save processing history script', ...
+                'Tag', 'EyeSort_SaveSessionHistory', ...
+                'callback', @(src,event) try_callback(@save_eyesort_processing_script, src, event));
+            
             uimenu(submenu, 'label', 'Help', 'separator', 'on', ...
                    'callback', @(src,event) try_callback(@help_button, src, event));
 
@@ -136,10 +144,32 @@ function currvers = eegplugin_eyesort(fig, ~, ~)
     end
 end
 
+% No-output wrapper so try_callback does not treat the script path as history.
+function save_eyesort_processing_script()
+    save_eyesort_session_script();
+end
+
 % Helper function for safer callback execution
 function try_callback(callback_fn, ~, ~)
     try
-        callback_fn();
+        com = '';
+        EEG = [];
+        outputCount = nargout(callback_fn);
+        if outputCount >= 2
+            [EEG, com] = callback_fn();
+        elseif outputCount == 1
+            output = callback_fn();
+            if ischar(output) || isstring(output)
+                com = output;
+            else
+                EEG = output;
+            end
+        else
+            callback_fn();
+        end
+        if ~isempty(com)
+            record_eyesort_history(com, EEG);
+        end
         % Update menu state after successful operations (especially dataset loading)
         update_eyesort_menu_state();
     catch ME

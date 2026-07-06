@@ -875,6 +875,8 @@ function [EEG, com] = pop_load_text_ia(EEG)
                     config = collect_gui_settings();
                     if ~isempty(config)
                         save_text_ia_config(config, 'last_text_ia_config.mat');
+                        update_eyesort_session_state('textIAConfigPath', ...
+                            fullfile(fileparts(fileparts(mfilename('fullpath'))), 'cache', 'last_text_ia_config.mat'));
                     end
                 catch
                     % Don't fail the main process if auto-save fails
@@ -901,6 +903,10 @@ function [EEG, com] = pop_load_text_ia(EEG)
                 end
                 h_msg = msgbox(sprintf('Text IA processing complete!\n\nProcessed: %d datasets\nFailed: %d datasets\n\nNow proceed to step 3 (Eye-Tracking Event Labeling) to apply labels.%s', processed_count, failed_count, batchNote), 'Batch Processing Complete');
                 waitfor(h_msg); % Wait for user to close the message box
+                
+                % Update command string for history
+                com = sprintf('EEG = pop_load_text_ia(EEG); %% Batch Text IA processing completed for %d datasets', processed_count);
+                record_eyesort_history(com);
                 
                 % Close GUI after batch processing completion
                 close(hFig);
@@ -979,6 +985,8 @@ function [EEG, com] = pop_load_text_ia(EEG)
                 config = collect_gui_settings();
                 if ~isempty(config)
                     save_text_ia_config(config, 'last_text_ia_config.mat');
+                    update_eyesort_session_state('textIAConfigPath', ...
+                        fullfile(fileparts(fileparts(mfilename('fullpath'))), 'cache', 'last_text_ia_config.mat'));
                 end
             catch
                 % Don't fail the main process if auto-save fails
@@ -986,8 +994,9 @@ function [EEG, com] = pop_load_text_ia(EEG)
             end
 
             % Update command string for history
-            com = sprintf('EEG = pop_loadTextIA(EEG); %% file=%s offset=%g px=%g',...
+            com = sprintf('EEG = pop_load_text_ia(EEG); %% file=%s offset=%g px=%g',...
                      txtFilePath, offset, pxPerChar);
+            record_eyesort_history(com, processedEEG);
 
             % Close GUI
             close(hFig);

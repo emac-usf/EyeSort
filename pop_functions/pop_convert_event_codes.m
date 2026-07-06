@@ -35,6 +35,14 @@ function [EEG, com] = pop_convert_event_codes(EEG)
 
 com = '';
 
+% Menu callbacks invoke this function with no arguments, so EEG is never
+% created until it is explicitly assigned below. Initialize it here so
+% every return path (including batch mode and early validation errors)
+% leaves EEG as a valid output argument.
+if nargin < 1
+    EEG = [];
+end
+
 % Detect whether we should run in batch mode by looking for an output
 % directory left behind by pop_label_datasets.
 batchDir = '';
@@ -236,8 +244,22 @@ uiwait(hDlg);
 
         if batchMode
             stats = apply_batch(batchFiles, selectedFormat);
-            com = sprintf('%% pop_convert_event_codes batch: %d file(s) -> %s', ...
-                length(batchFiles), selectedFormat);
+            com = sprintf('%% pop_convert_event_codes batch: %d file(s) in %s -> %s format', ...
+                length(batchFiles), batchDir, selectedFormat);
+
+            % Reload a converted dataset into the workspace so downstream
+            % EEGLAB/EyeSort steps have a valid, up-to-date EEG to work with.
+            if stats.converted > 0 && ~isempty(stats.firstConvertedFile)
+                try
+                    EEG = pop_loadset(stats.firstConvertedFile);
+                    assignin('base', 'EEG', EEG);
+                catch ME
+                    warning('EyeSort:ConvertEventCodes', ...
+                        ['Datasets were converted and saved, but reloading %s into the ' ...
+                         'workspace failed: %s'], stats.firstConvertedFile, ME.message);
+                end
+            end
+
             msgbox(sprintf(['Event marker conversion complete.\n\nConverted: %d dataset(s)\n' ...
                 'Skipped not labeled: %d dataset(s)\nFailed: %d dataset(s)\n\nFormat: %s'], ...
                 stats.converted, stats.skipped, stats.failed, selectedFormat), ...
@@ -259,7 +281,7 @@ end
 %% Apply conversion to a list of dataset files, saving each in place.
 function stats = apply_batch(files, fmt)
     nFiles = length(files);
-    stats = struct('converted', 0, 'skipped', 0, 'failed', 0);
+    stats = struct('converted', 0, 'skipped', 0, 'failed', 0, 'firstConvertedFile', '');
     fprintf('Converting event codes in %d dataset(s) to format ''%s''...\n', nFiles, fmt);
     h = waitbar(0, 'Converting event codes...', 'Name', 'Convert Event Codes');
     cleanup = onCleanup(@() safe_delete(h));
@@ -285,6 +307,9 @@ function stats = apply_batch(files, fmt)
             pop_saveset(tmp, 'filename', fname, 'filepath', folder, 'savemode', 'twofiles');
             fprintf('  Converted %d/%d: %s\n', i, nFiles, fname);
             stats.converted = stats.converted + 1;
+            if isempty(stats.firstConvertedFile)
+                stats.firstConvertedFile = files{i};
+            end
         catch ME
             warning('Failed to convert %s: %s', fname, ME.message);
             stats.failed = stats.failed + 1;

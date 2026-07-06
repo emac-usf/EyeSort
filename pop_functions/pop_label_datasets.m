@@ -812,6 +812,9 @@ function [EEG, com] = pop_label_datasets(EEG)
         % Auto-save the queue so it can be reloaded next session
         try
             save_label_config(pending_labels, 'last_label_queue.mat');
+            update_eyesort_session_state('labelQueueConfigPath', ...
+                fullfile(fileparts(fileparts(mfilename('fullpath'))), 'cache', 'last_label_queue.mat'), ...
+                'conflictResolution', saved_conflict_resolution);
         catch
             fprintf('Note: Could not auto-save label queue.\n');
         end
@@ -831,11 +834,7 @@ function [EEG, com] = pop_label_datasets(EEG)
 
                 % Write per-full_description CSV summary
                 if isfield(EEG, 'event') && isfield(EEG.event, 'bdf_full_description')
-                    session_idx = 1;
-                    while exist(fullfile(outputDir_single, sprintf('eyesort_labeling_summary_%03d.csv', session_idx)), 'file')
-                        session_idx = session_idx + 1;
-                    end
-                    csv_path = fullfile(outputDir_single, sprintf('eyesort_labeling_summary_%03d.csv', session_idx));
+                    csv_path = next_available_eyesort_summary_file(outputDir_single);
                     allFD = {EEG.event.bdf_full_description};
                     allFD = allFD(~cellfun(@isempty, allFD));
                     uniqueFD = unique(allFD);
@@ -846,7 +845,7 @@ function [EEG, com] = pop_label_datasets(EEG)
                             fprintf(fid, '%s,%s,%d\n', name, uniqueFD{ui}, sum(strcmp(allFD, uniqueFD{ui})));
                         end
                         fclose(fid);
-                        append_grand_totals(csv_path);
+                        append_eyesort_grand_totals(csv_path);
                         fprintf('Summary saved to: %s\n', csv_path);
                     end
                 end
@@ -967,11 +966,7 @@ function [EEG, com] = pop_label_datasets(EEG)
         nLabels = length(pending_labels);
 
         % Generate a unique summary filename for this session
-        session_idx = 1;
-        while exist(fullfile(outputDir, sprintf('eyesort_labeling_summary_%03d.csv', session_idx)), 'file')
-            session_idx = session_idx + 1;
-        end
-        session_summary_file = fullfile(outputDir, sprintf('eyesort_labeling_summary_%03d.csv', session_idx));
+        session_summary_file = next_available_eyesort_summary_file(outputDir);
 
         % saved_conflict_resolution threads the user's "remember" choice across
         % all labels and all datasets so the conflict dialog never repeats.
@@ -1077,11 +1072,14 @@ function [EEG, com] = pop_label_datasets(EEG)
                 fclose(fid);
             end
         end
-        append_grand_totals(session_summary_file);
+        append_eyesort_grand_totals(session_summary_file);
 
         % Auto-save the queue for next session
         try
             save_label_config(pending_labels, 'last_label_queue.mat');
+            update_eyesort_session_state('labelQueueConfigPath', ...
+                fullfile(fileparts(fileparts(mfilename('fullpath'))), 'cache', 'last_label_queue.mat'), ...
+                'conflictResolution', saved_conflict_resolution);
         catch
             fprintf('Note: Could not auto-save label queue.\n');
         end
@@ -1204,41 +1202,6 @@ function [EEG, com] = pop_label_datasets(EEG)
             label_params{end+1} = 'labelDescription';
             label_params{end+1} = config.labelDescription;
         end
-    end
-
-    % Append grand-total rows (sum across all datasets) to an existing CSV
-    function append_grand_totals(csv_path)
-        fid = fopen(csv_path, 'r');
-        if fid == -1, return; end
-        header = fgetl(fid);
-        rows = {};
-        while ~feof(fid)
-            line = strtrim(fgetl(fid));
-            if ~isempty(line), rows{end+1} = line; end
-        end
-        fclose(fid);
-        if isempty(rows), return; end
-
-        fdMap = containers.Map('KeyType','char','ValueType','double');
-        for ri = 1:length(rows)
-            parts = strsplit(rows{ri}, ',');
-            if length(parts) >= 3
-                key = strjoin(parts(2:end-1), ',');
-                val = str2double(parts{end});
-                if isKey(fdMap, key)
-                    fdMap(key) = fdMap(key) + val;
-                else
-                    fdMap(key) = val;
-                end
-            end
-        end
-
-        fid = fopen(csv_path, 'a');
-        if fid == -1, return; end
-        for k = keys(fdMap)
-            fprintf(fid, 'TOTAL,%s,%d\n', k{1}, fdMap(k{1}));
-        end
-        fclose(fid);
     end
 
 end

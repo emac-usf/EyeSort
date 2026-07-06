@@ -26,6 +26,7 @@ function generate_bdf_file(varargin)
 %   >> generate_bdf_file(EEG);                % Generate BDF from single EEG dataset
 %   >> generate_bdf_file(ALLEEG);             % Generate BDF from ALLEEG structure
 %   >> generate_bdf_file(EEG, outputFile);    % Specify output file path
+%   >> generate_bdf_file(outputDir, outputFile); % Process labeled .set files in a directory
 %
 % Inputs:
 %   EEG        - EEGLAB EEG structure with labeled events (optional)
@@ -40,6 +41,17 @@ function generate_bdf_file(varargin)
 %   - Last 2 digits: Label code (01-99)
 %
 % See also: pop_label_datasets
+
+    % Non-interactive directory mode for generated EyeSort scripts.
+    if nargin >= 1 && (ischar(varargin{1}) || isstring(varargin{1})) && exist(char(varargin{1}), 'dir')
+        outputDir = char(varargin{1});
+        if nargin >= 2
+            process_from_directory(outputDir, varargin{2});
+        else
+            process_from_directory(outputDir);
+        end
+        return;
+    end
 
     % Check for input arguments
     if nargin < 1
