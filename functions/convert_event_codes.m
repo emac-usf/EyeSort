@@ -34,6 +34,7 @@ function EEG = convert_event_codes(EEG, eventFormat)
 %       'numeric'          - 6-digit CCRRLL code (ERPLAB compatible)
 %       'description'      - Condition + label description
 %       'description_word' - Condition + label + fixated word
+%       'description_index' - Condition + label + fixated word index
 %       'region_content'   - Full text of the fixated region
 %       'original'         - Restore original pre-EyeSort event codes
 %
@@ -44,7 +45,7 @@ if nargin < 2
     error('convert_event_codes requires an eventFormat argument.');
 end
 
-validFormats = {'numeric', 'description', 'description_word', 'region_content', 'original'};
+validFormats = {'numeric', 'description', 'description_word', 'description_index', 'region_content', 'original'};
 if ~ismember(eventFormat, validFormats)
     error('Invalid eventFormat ''%s''. Must be one of: %s', eventFormat, strjoin(validFormats, ', '));
 end
@@ -91,6 +92,19 @@ for i = 1:length(EEG.event)
             wordText = resolve_word_text(evt);
             if ~isempty(descType) && ~isempty(wordText)
                 EEG.event(i).type = [descType ' ' wordText];
+            elseif ~isempty(descType)
+                EEG.event(i).type = descType;
+            else
+                EEG.event(i).type = evt.eyesort_full_code;
+            end
+
+        case 'description_index'
+            descType = '';
+            if isfield(evt, 'bdf_full_description') && ~isempty(evt.bdf_full_description)
+                descType = evt.bdf_full_description;
+            end
+            if ~isempty(descType) && isfield(evt, 'current_word') && ischar(evt.current_word) && ~isempty(evt.current_word)
+                EEG.event(i).type = [descType ' ' evt.current_word];
             elseif ~isempty(descType)
                 EEG.event(i).type = descType;
             else

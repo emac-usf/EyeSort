@@ -119,9 +119,10 @@ formatLabels = { ...
     'Numeric code (CCRRLL) - ERPLAB compatible', ...
     'Condition and label description', ...
     'Condition, label, and fixated word', ...
+    'Condition, label, and fixated word index', ...
     'Region text content', ...
     'Revert to original event codes'};
-formatValues = {'numeric', 'description', 'description_word', 'region_content', 'original'};
+formatValues = {'numeric', 'description', 'description_word', 'description_index', 'region_content', 'original'};
 
 currentFormat = 'numeric';
 if isfield(sampleEEG, 'eyesort_event_format') && ischar(sampleEEG.eyesort_event_format)
@@ -350,6 +351,22 @@ function str = build_preview(evt, fmt)
             end
             if ~isempty(desc) && ~isempty(word)
                 str = [desc ' ' word];
+            elseif ~isempty(desc)
+                str = desc;
+            else
+                str = [evt.eyesort_full_code ' (no description available)'];
+            end
+        case 'description_index'
+            desc = '';
+            if isfield(evt, 'bdf_full_description') && ~isempty(evt.bdf_full_description)
+                desc = evt.bdf_full_description;
+            end
+            wordIndex = '';
+            if isfield(evt, 'current_word') && ischar(evt.current_word) && ~isempty(evt.current_word)
+                wordIndex = evt.current_word;
+            end
+            if ~isempty(desc) && ~isempty(wordIndex)
+                str = [desc ' ' wordIndex];
             elseif ~isempty(desc)
                 str = desc;
             else
