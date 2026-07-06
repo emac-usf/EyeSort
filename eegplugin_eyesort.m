@@ -35,8 +35,8 @@ function currvers = eegplugin_eyesort(fig, ~, ~)
         % Variables might not exist, which is fine
     end
     
-    % Outlines current version of plugin
-    currvers = ['EyeSort v' eyesortver];
+    % Return plugin name and version in EEGLAB's standard parsable format.
+    currvers = ['EyeSort' eyesortver];
     
     % Ensure minimum arguments are met
     if nargin < 3
@@ -167,14 +167,64 @@ function try_callback(callback_fn, ~, ~)
         else
             callback_fn();
         end
+        EEG = get_current_eyesort_eeg(EEG);
         if ~isempty(com)
-            record_eyesort_history(com, EEG);
+            EEG = record_eyesort_history(com, EEG);
         end
+        refresh_eyesort_eeglab_state(EEG);
         % Update menu state after successful operations (especially dataset loading)
         update_eyesort_menu_state();
     catch ME
         errordlg(sprintf('Error in EyeSort operation: %s', ME.message), 'EyeSort Error');
         rethrow(ME);
+    end
+end
+
+function EEG = get_current_eyesort_eeg(EEG)
+    try
+        baseEEG = evalin('base', 'EEG');
+        if ~isempty(baseEEG) && isstruct(baseEEG)
+            EEG = baseEEG;
+        end
+    catch
+        % Use the callback output if the base workspace is not available.
+    end
+end
+
+function EEG = refresh_eyesort_eeglab_state(EEG)
+    try
+        EEG = get_current_eyesort_eeg(EEG);
+
+        if ~isempty(EEG) && isstruct(EEG) && isscalar(EEG)
+            try
+                ALLEEG = evalin('base', 'ALLEEG');
+                CURRENTSET = evalin('base', 'CURRENTSET');
+            catch
+                ALLEEG = [];
+                CURRENTSET = 0;
+            end
+
+            if isempty(ALLEEG) || isempty(CURRENTSET) || ...
+                    CURRENTSET < 1 || CURRENTSET > numel(ALLEEG)
+                [ALLEEG, EEG, CURRENTSET] = eeg_store(ALLEEG, EEG, 0);
+            else
+                [ALLEEG, EEG, CURRENTSET] = eeg_store(ALLEEG, EEG, CURRENTSET);
+            end
+
+            assignin('base', 'ALLEEG', ALLEEG);
+            assignin('base', 'EEG', EEG);
+            assignin('base', 'CURRENTSET', CURRENTSET);
+        elseif ~isempty(EEG) && isstruct(EEG)
+            assignin('base', 'EEG', EEG);
+        end
+
+        try
+            eeglab('redraw');
+        catch
+            % Redraw is best-effort; command-line workflows may not have a GUI.
+        end
+    catch ME
+        warning('EyeSort:RefreshState', 'Failed to refresh EEGLAB state: %s', ME.message);
     end
 end
 

@@ -300,6 +300,7 @@ function [EEG, com] = pop_load_datasets(EEG)
             % Load only the first dataset for GUI display
             try
                 firstEEG = pop_loadset('filename', batchFilePaths{1});
+                firstEEG = eeg_checkset(firstEEG);
                 if ~isfield(firstEEG, 'saved')
                     firstEEG.saved = 'no';
                 end
@@ -358,6 +359,8 @@ function [EEG, com] = pop_load_datasets(EEG)
                     errordlg('Dataset missing sampling rate.', 'Error');
                     return;
                 end
+
+                EEG = eeg_checkset(EEG);
 
                 % Check for event data
                 if ~isfield(EEG, 'event') || isempty(EEG.event)

@@ -60,6 +60,7 @@ function [EEG, com] = pop_label_datasets(EEG)
         try
             if batch_mode
                 EEG = pop_loadset('filename', batchFilePaths{1}); % Load first dataset as reference
+                EEG = eeg_checkset(EEG);
             
             else
                 EEG = evalin('base', 'EEG');
@@ -804,6 +805,8 @@ function [EEG, com] = pop_label_datasets(EEG)
                 end
                 assignin('base', 'EEG', EEG);
             end
+            EEG = eeg_checkset(EEG, 'eventconsistency');
+            assignin('base', 'EEG', EEG);
         catch ME
             delete(h);
             rethrow(ME);
@@ -991,6 +994,7 @@ function [EEG, com] = pop_label_datasets(EEG)
 
                     % Load once from the original path
                     tempEEG = pop_loadset('filename', batchFilePaths{i});
+                    tempEEG = eeg_checkset(tempEEG);
 
                     % Preserve existing label count; treat missing or empty
                     % (e.g. saved as [] by a prior run) as if absent
@@ -1040,6 +1044,7 @@ function [EEG, com] = pop_label_datasets(EEG)
                             end
                         end
                     end
+                    tempEEG = eeg_checkset(tempEEG, 'eventconsistency');
 
                     % Save once after all labels are applied
                     output_path = fullfile(outputDir, [cleanFileName '_processed.set']);

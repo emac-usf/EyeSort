@@ -338,6 +338,7 @@ function [EEG, com] = pop_import_ia_columns(EEG)
             if isfield(localALLEEG(i), 'eyesort_processed') && localALLEEG(i).eyesort_processed
                 try
                     localALLEEG(i) = import_ia_columns(localALLEEG(i), filePath, condColName, itemColName, selectedCols, 'none');
+                    localALLEEG(i) = eeg_checkset(localALLEEG(i), 'eventconsistency');
                     modifiedCount = modifiedCount + 1;
                     % Show diagnostic dialog for the first affected dataset;
                     % always track error severity regardless of dialog state.
@@ -419,6 +420,7 @@ function [EEG, com] = pop_import_ia_columns(EEG)
                 end
 
                 batchEEG = import_ia_columns(batchEEG, filePath, condColName, itemColName, selectedCols, 'none');
+                batchEEG = eeg_checkset(batchEEG, 'eventconsistency');
 
                 % Show diagnostic dialog for the first affected dataset;
                 % always track error severity regardless of dialog state.

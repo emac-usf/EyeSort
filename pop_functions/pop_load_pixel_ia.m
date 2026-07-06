@@ -234,6 +234,7 @@ function [EEG, com] = pop_load_pixel_ia(EEG)
             EEG = compute_pixel_based_ia(EEG, txtFilePath, numRegions, regionNames, ...
                                      regionStartNames, regionWidthNames, regionYTopNames, ...
                                      regionYBottomNames, conditionColName, itemColName);
+            EEG = eeg_checkset(EEG, 'eventconsistency');
                                      
             % Store back to base workspace
             assignin('base', 'EEG', EEG);
