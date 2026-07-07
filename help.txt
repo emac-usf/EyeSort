@@ -1,3 +1,50 @@
-***This is where the help/method section will be to help the user understand how to use EyeSort.***
+EyeSort for EEGLAB
 
-In future versions of the toolbox this will eventually be linked to most likely a Github page.
+EyeSort labels synchronized eye-tracking events in EEGLAB datasets using
+text-based interest areas. It is designed for reading experiments where
+fixation and saccade events have already been synchronized into EEG.event
+(for example, by an eye-tracking synchronization workflow).
+
+Typical workflow from the EyeSort menu:
+
+1. Load EEG Dataset(s)
+   Select one .set file for interactive processing or multiple .set files for
+   batch processing. Choose an output directory for processed datasets.
+
+2a. Setup Interest Areas > Text-Based Sentence Contents and Interest Areas
+   Load a tab-delimited interest-area text file, identify condition and item
+   trigger columns, enter region names, and map sentence regions onto fixation
+   and saccade events.
+
+2b. Setup Interest Areas > Inspect Parsed Regions
+   Review parsed region text and pixel boundaries before labeling.
+
+3. Import IA Columns to Events
+   Optionally copy additional columns from the interest-area text file into
+   matching EEG.event entries.
+
+4. Eye-Tracking Event Labeling
+   Build one or more label definitions using region, pass, fixation type, and
+   saccade direction criteria. EyeSort writes canonical CCRRLL labels to
+   eyesort_full_code and can set EEG.event.type to several user-selected formats.
+
+Additional menu items:
+
+- Generate BINLISTER BDF File
+  Create a BINLISTER-compatible bin descriptor file from EyeSort-labeled events.
+
+- Modify Event Code Format
+  Convert already labeled event types between numeric CCRRLL codes, descriptions,
+  description plus word, region content, or original event codes.
+
+- History Scripts
+  Export a reusable MATLAB processing script for reproducing an EyeSort session.
+
+Important notes:
+
+- Run Step 2 before importing IA columns or labeling events.
+- Original event codes are preserved in event.original_type when labels are applied.
+- EyeSort validates modified EEGLAB datasets with eeg_checkset before saving or
+  returning them to EEGLAB.
+- For detailed tutorials, screenshots, quality-control guidance, troubleshooting,
+  and sample files, see the user manual and release downloads.

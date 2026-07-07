@@ -31,7 +31,17 @@ function [EEG, com] = pop_convert_event_codes(EEG)
 % output directory.
 %
 % Usage:
-%   [EEG, com] = pop_convert_event_codes(EEG)
+%   >> [EEG, com] = pop_convert_event_codes(EEG);
+%
+% Inputs:
+%   EEG - EEGLAB EEG structure with EyeSort-labeled events. If omitted,
+%         the current base workspace dataset is used.
+%
+% Outputs:
+%   EEG - EEG structure with converted event type values.
+%   com - Command string for EEGLAB history.
+%
+% See also: convert_event_codes, pop_label_datasets
 
 com = '';
 
@@ -253,6 +263,7 @@ uiwait(hDlg);
             if stats.converted > 0 && ~isempty(stats.firstConvertedFile)
                 try
                     EEG = pop_loadset(stats.firstConvertedFile);
+                    EEG = eeg_checkset(EEG);
                     assignin('base', 'EEG', EEG);
                 catch ME
                     warning('EyeSort:ConvertEventCodes', ...
@@ -267,6 +278,7 @@ uiwait(hDlg);
                 'Conversion Complete', 'help');
         else
             EEG = convert_event_codes(EEG, selectedFormat);
+            EEG = eeg_checkset(EEG, 'eventconsistency');
             com = sprintf('EEG = convert_event_codes(EEG, ''%s'');', selectedFormat);
             assignin('base', 'EEG', EEG);
             msgbox(sprintf('Event codes converted to ''%s'' format.', selectedFormat), ...
@@ -303,6 +315,7 @@ function stats = apply_batch(files, fmt)
 
             waitbar((i-0.5)/nFiles, h, sprintf('Converting %s...', fname));
             tmp = convert_event_codes(tmp, fmt);
+            tmp = eeg_checkset(tmp, 'eventconsistency');
 
             waitbar((i-0.25)/nFiles, h, sprintf('Saving %s...', fname));
             pop_saveset(tmp, 'filename', fname, 'filepath', folder, 'savemode', 'twofiles');

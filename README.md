@@ -1,168 +1,126 @@
-## EyeSort: Region-aware eye-tracking event labeling for EEGLAB
+## EyeSort
 
-EyeSort is an EEGLAB plugin that integrates text/pixel interest areas with synchronized eye-tracking events and builds robust, reproducible label codes for ERP binning. It adds a guided GUI workflow to:
+EyeSort is a free, open-source EEGLAB plugin for adding behavior-contingent
+event labels to synchronized EEG and eye-movement datasets from reading studies.
+It is designed for the stage after fixation and saccade events have already
+been synchronized into `EEG.event`, but before ERP averaging, FRP analysis,
+BINLISTER binning, or deconvolution modeling.
 
-- Load one or many EEG `.set` datasets
-- Define interest areas (text-based sentences or pixel regions)
-- Label fixations and saccades with rich criteria (region, pass, fixation type, saccade direction)
-- Auto-generate BINLISTER Bin Descriptor Files (BDF) from labeled codes
-- Save labeled datasets for downstream ERP workflows
+EyeSort maps fixations to text-defined regions, labels fixation events by
+behavioral context, preserves traceability in the EEGLAB event structure, and
+supports both interactive GUI workflows and reusable MATLAB scripts.
 
-**Latest release:** [GitHub Releases](../../releases) · **Docs:** User Manual (below)
+If you are new to EyeSort, we strongly recommend reading the user manual before
+using the plugin on your own data. The README is intentionally brief; the manual
+contains the full tutorials, screenshots, quality-control guidance, and
+troubleshooting details.
 
-## Downloads
+## EyeSort v0.6
 
-- **Sample datasets + IA file (zip):**  
-  [Download](https://github.com/emac-usf/EyeSort/releases/latest/download/EyeSort_compatible_files.zip)
+This release provides the current EEGLAB menu workflow:
 
-- **User Manual (PDF):**  
-  [Download](https://github.com/emac-usf/EyeSort/releases/latest/download/EyeSort_Manual.pdf)
+- Load one or more synchronized EEGLAB `.set` datasets.
+- Map text-based interest areas to fixation and saccade events.
+- Inspect parsed regions before labeling.
+- Optionally import additional interest-area file columns into `EEG.event`.
+- Queue and apply behavior-contingent fixation labels.
+- Generate BINLISTER-compatible BDF files for ERPLAB.
+- Modify labeled event marker formats while preserving canonical EyeSort codes.
+- Export MATLAB history scripts for GUI-free reruns.
 
-### Requirements
+## Documentation And Downloads
 
-- **MATLAB** and **EEGLAB** installed (EyeSort is an EEGLAB plugin)
-- Datasets must already be synchronized with eye-tracking events (e.g., via the EYE-EEG pipeline) so that fixation and saccade events exist in `EEG.event`
-  - Defaults assume: `R_fixation`, `R_saccade`, `fix_avgpos_x`, `sac_startpos_x`, `sac_endpos_x` (all customizable in the GUI)
+- [Latest releases](../../releases)
+- [User Manual (PDF)](https://github.com/emac-usf/EyeSort/releases/latest/download/EyeSort_Manual.pdf)
+- [Sample datasets and interest-area file](https://github.com/emac-usf/EyeSort/releases/latest/download/EyeSort_compatible_files.zip)
 
-### Installation
+The user manual is the authoritative guide for installation, input preparation,
+step-by-step GUI use, scripted reproducibility, quality control, and
+troubleshooting.
 
-1) Copy the `EyeSort` folder into your EEGLAB `plugins/` directory.
-2) Launch EEGLAB in MATLAB. EyeSort auto-adds its subfolders to the MATLAB path.
-3) Verify the `EyeSort` menu appears in EEGLAB’s toolbar. If multiple EyeSort copies are detected, the first found on path is used.
+## Scope
 
-### Data prerequisites
+EyeSort does not perform raw EEG preprocessing, eye-tracker preprocessing,
+artifact correction, or EEG/eye-tracking synchronization. It assumes those
+upstream steps have already produced fixation and saccade events in `EEG.event`.
 
-- EEG datasets must contain synchronized eye-tracking events (fixations/saccades) in `EEG.event`.
-- For text-based interest areas you need a tab-delimited file with one row per stimulus (trial) containing:
-  - A condition trigger code column (e.g., `trigcondition`)
-  - An item trigger code column (e.g., `trigitem`)
-  - One column per region with the literal text shown on screen (region names are user-specified in the GUI)
+EyeSort outputs can be used in downstream analyses including ERPLAB/BINLISTER
+ERP workflows and model-based approaches such as deconvolution.
 
-### End-to-end workflow (GUI)
+## Requirements
 
-The EEGLAB menu sequence under `EyeSort` guides you through the pipeline.
+- MATLAB with EEGLAB installed and working.
+- EyeSort copied into the EEGLAB `plugins` directory.
+- EEGLAB `.set` datasets with synchronized fixation and saccade events in
+  `EEG.event`.
+- A tab-delimited interest-area text file with one row per stimulus/trial,
+  condition and item trigger columns, and one column per named text region.
 
-#### 1) Load EEG Dataset(s)
+EyeSort defaults match common EYE-EEG synchronized field names, but these are
+customizable in the GUI:
 
-Use `EyeSort → 1. Load EEG Dataset(s)` (`pop_load_datasets`):
+- Fixation event type: `R_fixation`
+- Fixation X-position field: `fix_avgpos_x`
+- Saccade event type: `R_saccade`
+- Saccade X-position fields: `sac_startpos_x`, `sac_endpos_x`
 
-- Single dataset: select one `.set` file; it is loaded into `EEG`/`ALLEEG`.
-- Batch mode: select an input directory of `.set` files and an output directory. EyeSort validates file existence, records paths in the base workspace, and loads the first dataset for display. Processing is done one-at-a-time to avoid memory issues.
+## Installation
 
-Outputs and state:
-- Single dataset mode: datasets are loaded into EEGLAB immediately.
-- Batch mode: defines `eyesort_batch_*` variables (file paths, filenames, output dir, mode flag) used by later steps.
+1. Copy the `EyeSort` folder into the EEGLAB `plugins` directory.
+2. Start MATLAB and launch EEGLAB with `eeglab`.
+3. Verify that the `EyeSort` menu appears in the EEGLAB toolbar.
 
-#### 2) Setup Interest Areas
+If MATLAB reports multiple EyeSort folders on the path, remove duplicate copies
+or confirm that the first folder found is the intended version.
 
-Use `EyeSort → 2. Setup Interest Areas → Text-Based Sentence Contents and Interest Areas` (`pop_load_text_ia`). This step:
+## Quick Workflow
 
-- Reads your tab-delimited IA file and extracts per-trial region boundaries and words
-- Maps those boundaries to events using your trial start/end triggers and item/condition triggers
-- Derives trial/region metadata for downstream labeling and BDF generation
+The EyeSort menu is organized as a guided sequence:
 
-Key inputs in the GUI (with defaults/placeholders):
-- Sentence offset in pixels (e.g., 281)
-- Pixels per character (e.g., 14)
-- Number of regions and region names (comma-separated; order matters)
-- Condition label column name(s) for BDF descriptions (can be multiple, comma-separated)
-- Condition trigger code column (e.g., `trigcondition`) and item trigger code column (e.g., `trigitem`)
-- Trial start/end codes (e.g., `S254`, `S255`)
-- Optional eye-event time window codes (stimulus start/end; e.g., `S250`, `S251`)
-- Condition triggers (comma-separated; e.g., `S211, S213, S221, S223`)
-- Item triggers (supports ranges; e.g., `S1:S112`)
-- Eye event names/fields (fixation, saccade, X positions) — customizable if your dataset differs from defaults
+1. `EyeSort > 1. Load EEG Dataset(s)`
+2. `EyeSort > 2a. Setup Interest Areas > Text-Based Sentence Contents and Interest Areas`
+3. `EyeSort > 2b. Setup Interest Areas > Inspect Parsed Regions`
+4. `EyeSort > 3. Import IA Columns to Events` (optional)
+5. `EyeSort > 4. Eye-Tracking Event Labeling`
+6. `EyeSort > Generate BINLISTER BDF File` (optional)
+7. `EyeSort > Modify Event Code Format` (optional)
+8. `EyeSort > History Scripts > Save processing history script` (optional)
 
-Notes and validations:
-- Region column names are matched robustly (case-insensitive; with/without `$`), and helpful errors are shown when missing
-- You can Save/Load your Text IA configuration (`*.mat`) and the plugin auto-saves the last-used configuration to `cache/last_text_ia_config.mat`
-- Optional: Save intermediate dataset(s) after IA processing but before labeling. Files use `*_eyesort_ia.set`
+For scripted reruns without the GUI, export a processing script from the
+`History Scripts` menu after completing a representative EyeSort workflow.
 
-Under the hood (`functions/compute_text_based_ia.m`):
-- Builds per-trial region and word pixel boundaries from your text using `offset` and `pxPerChar`
-- Assigns region info to events and identifies fixation membership per region
-- Performs trial labeling (first pass, regressions, etc.) via `functions/trial_labeling.m`
-- Stores field-name metadata in `EEG.eyesort_field_names` and region names in `EEG.region_names`
+## Outputs
 
-Experimental: Pixel-based IA (`pop_load_pixel_ia`) exists but the main menu keeps it disabled. You may call it directly for pilot workflows.
+EyeSort writes traceable metadata to the EEG dataset and event structures. Common
+outputs include:
 
-#### 3) Eye-Tracking Event Labeling
+- Optional intermediate datasets: `*_eyesort_ia.set`
+- Processed/labeled datasets: `*_processed.set`
+- BINLISTER BDF files, typically `eyesort_bins.txt`
+- Labeling summary CSV files when label descriptions are available
+- Exported processing scripts and sidecar configuration files
 
-Use `EyeSort → 3. Eye-Tracking Event Labeling` (`pop_label_datasets`):
+Important event-level fields include `original_type`, `eyesort_full_code`,
+`eyesort_condition_code`, `eyesort_region_code`, `eyesort_label_code`,
+`bdf_full_description`, `current_region`, `current_word`, and behavioral-context
+fields such as pass number, previous region, and next region.
 
-- Select time-locked region(s) to anchor your label criteria
-- Choose pass constraints: First, Second, Third+ (or any)
-- Optionally constrain by previous and/or next region visited
-- Select fixation type: Single, First of Multiple, Second, Subsequent, Last in Region
-- Select saccade direction In and Out: Forward or Backward
-- Enter a human-readable Label Description (used later for BDF descriptions)
-- Save/Load label configurations (`*.mat`); last-used config is auto-saved to `cache/last_label_config.mat`
+## Help And Support
 
-Behavior and outputs:
-- Each applied label increments a label counter and rewrites matching event `type` values as a 6-digit code: `CCRRLL`
-  - `CC` = 2-digit condition code
-  - `RR` = 2-digit region code (stable mapping per dataset/region order)
-  - `LL` = 2-digit label number (01–99)
-- Original event types are preserved in `event.original_type`
-- Labeled events also receive `event.eyesort_*` fields and, when Label Description is set, BDF description strings
-- Single dataset mode updates the current `EEG` structure in place; batch mode writes progressively to your chosen output directory as `*_processed.set`
+- Use `EyeSort > Help` for an in-EEGLAB workflow summary.
+- Use the user manual for tutorials and detailed troubleshooting.
+- Open an issue on the repository to report bugs.
 
-#### 4) Generate BINLISTER BDF File
+Contact:
 
-Use `EyeSort → Generate BINLISTER BDF File` (`pop_generate_bdf` → `functions/generate_bdf_file.m`):
+- Sara Milligan: smilliga@usf.edu
+- Brandon Snyder: snyderb96@gmail.com
+- Elizabeth Schotter: eschotter@usf.edu
 
-- Scans labeled events and groups unique `CCRRLL` codes by condition and region
-- Writes a BINLISTER-compatible BDF (default name `eyesort_bins.txt`)
-- Uses your Label Description and condition descriptors to build readable bin text when available
+## License
 
-#### Save Labeled Dataset
+EyeSort is distributed under the GPL-3.0-or-later license. See `LICENSE`.
 
-Use `EyeSort → Save Labeled Dataset` to pick and save the current (or one from `ALLEEG`) with standard EEGLAB dialogs.
+## Citation
 
-### Batch processing (scripted)
-
-For fully scripted pipelines, see `functions/eyesort_batch_process.m` for an example that:
-
-1) Loads each `.set`
-2) Runs `compute_text_based_ia` using a saved config (`.m` or `.mat`)
-3) Applies label filters via `label_datasets_core` using a saved label config
-4) Saves intermediate and final outputs (`*_eyesort_ia.set`, `*_eyesort_processed.set`)
-
-### Configuration files
-
-- Text IA configs: `Save Configuration`/`Load Configuration` in the Text IA GUI; last-used auto-saved to `cache/last_text_ia_config.mat`
-- Label configs: `Save Label Configuration`/`Load Label Configuration` in the Labeling GUI; last-used auto-saved to `cache/last_label_config.mat`
-- You can store configs anywhere; EyeSort will also look for the `last_*.mat` files in `cache/` inside the plugin directory
-
-### Troubleshooting
-
-- No `EyeSort` menu in EEGLAB:
-  - Ensure `EyeSort/` is inside `eeglab/plugins/` when launching EEGLAB
-  - Check the MATLAB path for duplicate copies; EyeSort uses the first found
-- “EEG data is not properly processed with region information”: run Step 2 (Text IA) first
-- “No labeled events found”: your criteria may be too strict, or events already carry prior labels; relax options or clear conflicts
-- IA file errors:
-  - Missing region columns or mismatched names — verify headers match your GUI inputs
-- Eye event field names differ from defaults — enable "Change default event field names" in the Text IA GUI and supply your names
-
-### What EyeSort writes
-
-- Intermediate (optional): `*_eyesort_ia.set`
-- Labeled outputs (batch): `*_processed.set`
-- BDF: `eyesort_bins.txt` (or your chosen name/path)
-- Metadata fields on events/dataset for traceability (e.g., `eyesort_full_code`, `eyesort_label_descriptions`, `eyesort_field_names`)
-
-### Citation and license
-
-- To be included...
-- License: License: GPL-3.0-or-later (see LICENSE).
-
-### Contact and help
-
-- Please feel free to contact us about any questions, comments or concerns at:
-  - Sara Milligan: smilliga@usf.edu
-  - Brandon Snyder: snyderb96@gmail.com
-  - Elizabeth Schotter: eschotter@usf.edu
- 
-- Use `EyeSort → Help` to open `help.txt` (stub). For detailed docs, use this README.
-- Found a bug? Open a ticket on the repository.
+Citation information will be added when available.

@@ -38,6 +38,8 @@ function [EEG, com] = pop_load_datasets(EEG)
 %    EEG  - Updated EEG structure (the *last* loaded dataset).
 %    com  - Command string for the EEGLAB history.
 %
+% See also: pop_loadset, pop_load_text_ia, pop_label_datasets
+%
 % DESCRIPTION: Function is designed to allow the user to load in a single dataset or a directory of datasets to prepare for the rest of the EyeSort pipeline.
 
     % ---------------------------------------------------------------------
@@ -300,6 +302,7 @@ function [EEG, com] = pop_load_datasets(EEG)
             % Load only the first dataset for GUI display
             try
                 firstEEG = pop_loadset('filename', batchFilePaths{1});
+                firstEEG = eeg_checkset(firstEEG);
                 if ~isfield(firstEEG, 'saved')
                     firstEEG.saved = 'no';
                 end
@@ -358,6 +361,8 @@ function [EEG, com] = pop_load_datasets(EEG)
                     errordlg('Dataset missing sampling rate.', 'Error');
                     return;
                 end
+
+                EEG = eeg_checkset(EEG);
 
                 % Check for event data
                 if ~isfield(EEG, 'event') || isempty(EEG.event)

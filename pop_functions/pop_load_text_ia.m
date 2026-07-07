@@ -19,6 +19,20 @@
 % Author: Brandon Snyder
 
 function [EEG, com] = pop_load_text_ia(EEG)
+% POP_LOAD_TEXT_IA - Configure text-based interest areas for EyeSort.
+%
+% Usage:
+%   >> [EEG, com] = pop_load_text_ia(EEG);
+%
+% Inputs:
+%   EEG - EEGLAB EEG structure. If omitted, EyeSort uses the base workspace
+%         dataset or batch queue prepared by pop_load_datasets.
+%
+% Outputs:
+%   EEG - EEG structure with EyeSort text-region metadata added to EEG.event.
+%   com - Command string for EEGLAB history.
+%
+% See also: compute_text_based_ia, pop_load_datasets, pop_label_datasets
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %                          Option 1:                              %            
@@ -788,6 +802,7 @@ function [EEG, com] = pop_load_text_ia(EEG)
                     try
                         % Load dataset
                         currentEEG = pop_loadset('filename', batchFilePaths{i});
+                        currentEEG = eeg_checkset(currentEEG);
                         
                         % Variables already validated as characters above
                         
@@ -800,6 +815,7 @@ function [EEG, com] = pop_load_text_ia(EEG)
                                               saccadeStartXFieldStr, saccadeEndXFieldStr, ...
                                               sentenceStartCodeStr, sentenceEndCodeStr, conditionTypeColNames, ...
                                               'rtl', rtl, 'batch_mode', true, 'reportMode', 'none');
+                        processedEEG = eeg_checkset(processedEEG, 'eventconsistency');
                         
                         % Show assignment diagnostics dialog for the first affected dataset
                         skipDataset = false;
@@ -886,6 +902,7 @@ function [EEG, com] = pop_load_text_ia(EEG)
                 % Load the first processed dataset for GUI display
                 try
                     firstProcessedEEG = pop_loadset('filename', batchFilePaths{1});
+                    firstProcessedEEG = eeg_checkset(firstProcessedEEG);
                     % Ensure EEG structure is properly formatted for EEGLAB
                     if ~isfield(firstProcessedEEG, 'saved')
                         firstProcessedEEG.saved = 'no';
@@ -925,6 +942,7 @@ function [EEG, com] = pop_load_text_ia(EEG)
                                               saccadeStartXFieldStr, saccadeEndXFieldStr, ...
                                               sentenceStartCodeStr, sentenceEndCodeStr, conditionTypeColNames, ...
                                               'rtl', rtl, 'reportMode', 'none');
+                    processedEEG = eeg_checkset(processedEEG, 'eventconsistency');
                     waitbar(1, h, 'Done!');
                 catch ME
                     delete(h);
@@ -977,7 +995,7 @@ function [EEG, com] = pop_load_text_ia(EEG)
                 end
                 assignin('base', 'EEG', processedEEG);
                 
-                % Note: Avoiding eeglab('redraw') to prevent GUI issues
+                % EEGLAB state refresh is handled by eegplugin_eyesort after this callback returns.
             end
             
             % Auto-save current configuration for future use

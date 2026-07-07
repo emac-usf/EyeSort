@@ -19,6 +19,7 @@
 % Author: Brandon Snyder
 
 function currvers = eegplugin_eyesort(fig, ~, ~)
+% EEGPLUGIN_EYESORT - Register the EyeSort EEGLAB plugin menu and callbacks.
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %    EyeSort Plugin for EEGLAB:       %
@@ -35,8 +36,8 @@ function currvers = eegplugin_eyesort(fig, ~, ~)
         % Variables might not exist, which is fine
     end
     
-    % Outlines current version of plugin
-    currvers = ['EyeSort v' eyesortver];
+    % Return plugin name and version in EEGLAB's standard parsable format.
+    currvers = ['EyeSort' eyesortver];
     
     % Ensure minimum arguments are met
     if nargin < 3
@@ -63,10 +64,10 @@ function currvers = eegplugin_eyesort(fig, ~, ~)
         error('Failed to locate the EyeSort plugin path.');
     end
 
-   % Check if the BinMaster menu already exists
+   % Check if the EyeSort menu already exists
     menuEEGLAB = findobj(fig, 'tag', 'EEGLAB'); % Find EEGLAB main menu
     
-    existingMenu = findobj(menuEEGLAB, 'tag', 'EyeSort'); % Check for existing BinMaster menu
+    existingMenu = findobj(menuEEGLAB, 'tag', 'EyeSort'); % Check for existing EyeSort menu
 
     %% Initializes EyeSort to the EEGLAB menu
     if isempty(existingMenu)
@@ -103,13 +104,6 @@ function currvers = eegplugin_eyesort(fig, ~, ~)
                 'Tag', 'EyeSort_InspectRegions', 'enable', 'off', ...
                 'callback', @(src,event) try_callback(@pop_inspect_regions, src, event));
             
-            % Removed pixel-based IA menu item as it is not implemented
-            %{
-            uimenu(loadInterestAreasMenu, 'Label', 'Pixel-Based Interest Areas', 'separator', 'on', ...
-                'Tag', 'EyeSort_PixelIA', 'enable', 'off', ...
-                'callback', @(src,event) try_callback(@pop_load_pixel_ia, src, event));
-            %}
-
             % Import columns from IA text file into EEG events
             uimenu(submenu, 'label', '3. Import IA Columns to Events', 'separator', 'off', ...
                 'callback', @(src,event) try_callback(@pop_import_ia_columns, src, event));
@@ -167,14 +161,64 @@ function try_callback(callback_fn, ~, ~)
         else
             callback_fn();
         end
+        EEG = get_current_eyesort_eeg(EEG);
         if ~isempty(com)
-            record_eyesort_history(com, EEG);
+            EEG = record_eyesort_history(com, EEG);
         end
+        refresh_eyesort_eeglab_state(EEG);
         % Update menu state after successful operations (especially dataset loading)
         update_eyesort_menu_state();
     catch ME
         errordlg(sprintf('Error in EyeSort operation: %s', ME.message), 'EyeSort Error');
         rethrow(ME);
+    end
+end
+
+function EEG = get_current_eyesort_eeg(EEG)
+    try
+        baseEEG = evalin('base', 'EEG');
+        if ~isempty(baseEEG) && isstruct(baseEEG)
+            EEG = baseEEG;
+        end
+    catch
+        % Use the callback output if the base workspace is not available.
+    end
+end
+
+function EEG = refresh_eyesort_eeglab_state(EEG)
+    try
+        EEG = get_current_eyesort_eeg(EEG);
+
+        if ~isempty(EEG) && isstruct(EEG) && isscalar(EEG)
+            try
+                ALLEEG = evalin('base', 'ALLEEG');
+                CURRENTSET = evalin('base', 'CURRENTSET');
+            catch
+                ALLEEG = [];
+                CURRENTSET = 0;
+            end
+
+            if isempty(ALLEEG) || isempty(CURRENTSET) || ...
+                    CURRENTSET < 1 || CURRENTSET > numel(ALLEEG)
+                [ALLEEG, EEG, CURRENTSET] = eeg_store(ALLEEG, EEG, 0);
+            else
+                [ALLEEG, EEG, CURRENTSET] = eeg_store(ALLEEG, EEG, CURRENTSET);
+            end
+
+            assignin('base', 'ALLEEG', ALLEEG);
+            assignin('base', 'EEG', EEG);
+            assignin('base', 'CURRENTSET', CURRENTSET);
+        elseif ~isempty(EEG) && isstruct(EEG)
+            assignin('base', 'EEG', EEG);
+        end
+
+        try
+            eeglab('redraw');
+        catch
+            % Redraw is best-effort; command-line workflows may not have a GUI.
+        end
+    catch ME
+        warning('EyeSort:RefreshState', 'Failed to refresh EEGLAB state: %s', ME.message);
     end
 end
 
@@ -243,10 +287,6 @@ function update_eyesort_menu_state()
             if ~isempty(textIAMenu), set(textIAMenu, 'enable', 'off'); end
         end
         
-        % Always keep pixel IA disabled (not implemented)
-        pixelIAMenu = findobj(mainMenu, 'Tag', 'EyeSort_PixelIA');
-        if ~isempty(pixelIAMenu), set(pixelIAMenu, 'enable', 'off'); end
-        
         % Enable Inspect Parsed Regions only after Step 2 has been run
         inspectMenu = findobj(mainMenu, 'Tag', 'EyeSort_InspectRegions');
         if ~isempty(inspectMenu)
@@ -282,14 +322,3 @@ function update_eyesort_menu_state()
         warning('EyeSort:MenuUpdate', 'Failed to update menu state: %s', ME.message);
     end
 end
-
-%{
-% Callback for loading EEG datasets
-function launch_dataset_loader()
-    EEGDatasets = load_datasetsGUI(); % Launch the dataset loader GUI
-    if ~isempty(EEGDatasets)
-        setappdata(0, 'LoadedEEGDatasets', EEGDatasets); % Store datasets globally
-        fprintf('Datasets loaded successfully.\n');
-    end
-end
-%}

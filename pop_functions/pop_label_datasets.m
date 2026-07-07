@@ -20,6 +20,21 @@
 
 
 function [EEG, com] = pop_label_datasets(EEG)
+% POP_LABEL_DATASETS - Label EyeSort-processed fixation and saccade events.
+%
+% Usage:
+%   >> [EEG, com] = pop_label_datasets(EEG);
+%
+% Inputs:
+%   EEG - EEGLAB EEG structure previously processed by pop_load_text_ia.
+%         If omitted, EyeSort uses the current base workspace dataset or
+%         batch queue.
+%
+% Outputs:
+%   EEG - EEG structure with EyeSort label fields and updated event types.
+%   com - Command string for EEGLAB history.
+%
+% See also: label_datasets_core, pop_load_text_ia, pop_convert_event_codes
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %    LABEL DATASETS GUI      %
@@ -60,6 +75,7 @@ function [EEG, com] = pop_label_datasets(EEG)
         try
             if batch_mode
                 EEG = pop_loadset('filename', batchFilePaths{1}); % Load first dataset as reference
+                EEG = eeg_checkset(EEG);
             
             else
                 EEG = evalin('base', 'EEG');
@@ -804,6 +820,8 @@ function [EEG, com] = pop_label_datasets(EEG)
                 end
                 assignin('base', 'EEG', EEG);
             end
+            EEG = eeg_checkset(EEG, 'eventconsistency');
+            assignin('base', 'EEG', EEG);
         catch ME
             delete(h);
             rethrow(ME);
@@ -892,7 +910,7 @@ function [EEG, com] = pop_label_datasets(EEG)
             'numeric', 'Events labeled with 6-digit codes (CCRRLL). CC = condition, RR = region, LL = label', ...
             'description', 'Events labeled with condition + label descriptions (e.g., ''Identical PreTarget_NoSkip'')', ...
             'description_word', 'Events labeled with condition + label + fixated word (e.g., ''Identical PreTarget_NoSkip JUMPED'')', ...
-            'description_index', 'Events labeled with condition + label + fixated word index (e.g., ''Identical PreTarget_NoSkip 4.2'')', ...
+            'description_index', 'Events labeled with condition + label + fixated word index (e.g., ''Identical PreTarget_NoSkip 4_2'')', ...
             'region_content', 'Events labeled with region text content', ...
             'original', 'Event codes left as original (pre-EyeSort) values');
         if isfield(formatDescriptions, selectedEventFormat)
@@ -991,6 +1009,7 @@ function [EEG, com] = pop_label_datasets(EEG)
 
                     % Load once from the original path
                     tempEEG = pop_loadset('filename', batchFilePaths{i});
+                    tempEEG = eeg_checkset(tempEEG);
 
                     % Preserve existing label count; treat missing or empty
                     % (e.g. saved as [] by a prior run) as if absent
@@ -1040,6 +1059,7 @@ function [EEG, com] = pop_label_datasets(EEG)
                             end
                         end
                     end
+                    tempEEG = eeg_checkset(tempEEG, 'eventconsistency');
 
                     % Save once after all labels are applied
                     output_path = fullfile(outputDir, [cleanFileName '_processed.set']);
