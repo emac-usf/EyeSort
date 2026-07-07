@@ -20,6 +20,21 @@
 
 
 function [EEG, com] = pop_label_datasets(EEG)
+% POP_LABEL_DATASETS - Label EyeSort-processed fixation and saccade events.
+%
+% Usage:
+%   >> [EEG, com] = pop_label_datasets(EEG);
+%
+% Inputs:
+%   EEG - EEGLAB EEG structure previously processed by pop_load_text_ia.
+%         If omitted, EyeSort uses the current base workspace dataset or
+%         batch queue.
+%
+% Outputs:
+%   EEG - EEG structure with EyeSort label fields and updated event types.
+%   com - Command string for EEGLAB history.
+%
+% See also: label_datasets_core, pop_load_text_ia, pop_convert_event_codes
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %    LABEL DATASETS GUI      %

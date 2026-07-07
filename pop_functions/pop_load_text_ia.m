@@ -19,6 +19,20 @@
 % Author: Brandon Snyder
 
 function [EEG, com] = pop_load_text_ia(EEG)
+% POP_LOAD_TEXT_IA - Configure text-based interest areas for EyeSort.
+%
+% Usage:
+%   >> [EEG, com] = pop_load_text_ia(EEG);
+%
+% Inputs:
+%   EEG - EEGLAB EEG structure. If omitted, EyeSort uses the base workspace
+%         dataset or batch queue prepared by pop_load_datasets.
+%
+% Outputs:
+%   EEG - EEG structure with EyeSort text-region metadata added to EEG.event.
+%   com - Command string for EEGLAB history.
+%
+% See also: compute_text_based_ia, pop_load_datasets, pop_label_datasets
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %                          Option 1:                              %            

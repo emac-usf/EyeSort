@@ -42,6 +42,8 @@ function [EEG, com] = pop_import_ia_columns(EEG)
     % OUTPUTS:
     %   EEG - Modified EEG structure(s) with imported columns
     %   com - EEGLAB history command string
+    %
+    % See also: import_ia_columns, pop_load_text_ia, pop_label_datasets
 
     com = '';
 

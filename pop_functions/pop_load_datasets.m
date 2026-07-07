@@ -38,6 +38,8 @@ function [EEG, com] = pop_load_datasets(EEG)
 %    EEG  - Updated EEG structure (the *last* loaded dataset).
 %    com  - Command string for the EEGLAB history.
 %
+% See also: pop_loadset, pop_load_text_ia, pop_label_datasets
+%
 % DESCRIPTION: Function is designed to allow the user to load in a single dataset or a directory of datasets to prepare for the rest of the EyeSort pipeline.
 
     % ---------------------------------------------------------------------

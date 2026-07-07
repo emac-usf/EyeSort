@@ -31,7 +31,17 @@ function [EEG, com] = pop_convert_event_codes(EEG)
 % output directory.
 %
 % Usage:
-%   [EEG, com] = pop_convert_event_codes(EEG)
+%   >> [EEG, com] = pop_convert_event_codes(EEG);
+%
+% Inputs:
+%   EEG - EEGLAB EEG structure with EyeSort-labeled events. If omitted,
+%         the current base workspace dataset is used.
+%
+% Outputs:
+%   EEG - EEG structure with converted event type values.
+%   com - Command string for EEGLAB history.
+%
+% See also: convert_event_codes, pop_label_datasets
 
 com = '';
 

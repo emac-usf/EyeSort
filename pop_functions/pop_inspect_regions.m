@@ -40,6 +40,8 @@ function [EEG, com] = pop_inspect_regions(EEG)
     % OUTPUTS:
     %   EEG - Unchanged EEG structure (read-only operation)
     %   com - EEGLAB history command string
+    %
+    % See also: inspect_parsed_regions, pop_load_text_ia, pop_label_datasets
 
     com = '';
 
