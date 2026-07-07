@@ -59,6 +59,7 @@ if ~isfield(EEG.event, 'eyesort_full_code')
     error('convert_event_codes:NotLabeled', ...
         'No eyesort_full_code field found. Please run EyeSort labeling before converting event marker formats.');
 end
+EEG = normalize_eyesort_event_fields(EEG);
 
 convertedCount = 0;
 
@@ -129,6 +130,7 @@ for i = 1:length(EEG.event)
 end
 
 EEG.eyesort_event_format = eventFormat;
+EEG = normalize_eyesort_event_fields(EEG);
 if convertedCount == 0
     error('convert_event_codes:NoLabeledEvents', ...
         'The dataset has eyesort_full_code but no labeled events with usable codes. Re-run labeling or check zero-match diagnostics.');

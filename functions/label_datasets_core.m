@@ -243,6 +243,7 @@ try
                                             fixationOptions, saccadeInOptions, saccadeOutOptions, labelCount, ...
                                             fixationType, fixationXField, saccadeType, ...
                                             saccadeStartXField, saccadeEndXField, labelDescription, rtl, conflictResolution, showRegionMap, eventFormat);
+    labeledEEG = normalize_eyesort_event_fields(labeledEEG);
     
     % Store the event format used for labeling
     labeledEEG.eyesort_event_format = eventFormat;
@@ -388,8 +389,7 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
     itemNumbers       = zeros(nEvents, 1);
 
     if isfield(EEG.event, 'original_type')
-        originalTypes = {EEG.event.original_type}';
-        originalTypes(cellfun(@isempty, originalTypes)) = {''};
+        originalTypes = cellfun(@value_to_char, {EEG.event.original_type}', 'UniformOutput', false);
     else
         originalTypes = repmat({''}, nEvents, 1);
     end
@@ -900,7 +900,7 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
         % Also check isempty because MATLAB auto-populates the field as [] on all
         % other struct-array elements whenever any element first receives the field.
         if ~isfield(evt, 'original_type') || isempty(evt.original_type)
-            labeledEEG.event(mm).original_type = evt.type;
+            labeledEEG.event(mm).original_type = value_to_char(evt.type);
         end
         
         % Check for existing code in the event
