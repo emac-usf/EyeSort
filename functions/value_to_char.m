@@ -3,6 +3,8 @@
 % Copyright (C) 2025 Eye Movements & Cognition Lab (USF)
 % Copyright (C) 2025 Brandon Snyder, Sara Milligan, Elizabeth Schotter
 
+% Author: Brandon Snyder
+
 function out = value_to_char(value)
 %VALUE_TO_CHAR Convert scalar event/config values to char safely.
 

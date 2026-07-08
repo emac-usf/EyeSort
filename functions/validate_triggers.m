@@ -3,6 +3,8 @@
 % Copyright (C) 2025 Eye Movements & Cognition Lab (USF)
 % Copyright (C) 2025 Brandon Snyder, Sara Milligan, Elizabeth Schotter
 
+% Author: Brandon Snyder
+
 function [diagnostics, summary] = validate_triggers(EEG, startCode, endCode, conditionTriggers, itemTriggers, sentenceStartCode, sentenceEndCode)
 %VALIDATE_TRIGGERS Validate Step 2 trigger inputs against EEG events.
 

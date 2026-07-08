@@ -3,6 +3,8 @@
 % Copyright (C) 2025 Eye Movements & Cognition Lab (USF)
 % Copyright (C) 2025 Brandon Snyder, Sara Milligan, Elizabeth Schotter
 
+% Author: Brandon Snyder
+
 function diagnostics = import_column_diagnostics(importDiagnostics, condColName, itemColName)
 %IMPORT_COLUMN_DIAGNOSTICS Build diagnostic struct from IA column import data.
 %
