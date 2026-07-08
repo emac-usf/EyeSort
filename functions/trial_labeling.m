@@ -93,6 +93,7 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
     [EEG.event.fixation_in_pass] = deal(0);           % which fixation in the current pass (1st, 2nd, etc.)
     [EEG.event.is_last_in_pass] = deal(false);        % pre-computed flag for last fixation in pass
     [EEG.event.current_word] = deal('');
+    [EEG.event.current_word_text] = deal('');
     [EEG.event.previous_word] = deal('');
     [EEG.event.is_first_pass_region] = deal(false);
     [EEG.event.is_first_pass_word] = deal(false);
@@ -217,15 +218,25 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
                         EEG.event(iEvt).current_word = currentWord;
                         EEG.event(iEvt).previous_word = previousWord;
                         
+                        % Parse current word into region and word number; resolve word text
+                        [curr_region, curr_word_num] = parse_word_region(currentWord);
+                        try
+                            wordsField = sprintf('region%d_words', curr_region);
+                            if isfield(EEG.event(iEvt), wordsField) && ~isempty(EEG.event(iEvt).(wordsField))
+                                words = EEG.event(iEvt).(wordsField);
+                                if iscell(words) && curr_word_num <= length(words)
+                                    EEG.event(iEvt).current_word_text = strtrim(words{curr_word_num});
+                                end
+                            end
+                        catch
+                        end
+                        
                         % Update word fixation counts
                         if ~isKey(wordFixationCounts, currentWord)
                             wordFixationCounts(currentWord) = 1;
                         else
                             wordFixationCounts(currentWord) = wordFixationCounts(currentWord) + 1;
                         end
-                        
-                        % Parse current word into region and word number
-                        [curr_region, curr_word_num] = parse_word_region(currentWord);
                         
                         % Update first-pass word information
                         % A word is only first-pass if:

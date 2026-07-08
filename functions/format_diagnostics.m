@@ -4,7 +4,7 @@
 % Copyright (C) 2025 Brandon Snyder, Sara Milligan, Elizabeth Schotter
 
 function message = format_diagnostics(diagnostics, titleText)
-%FORMAT_DIAGNOSTICS Convert diagnostic structs into readable text.
+% FORMAT_DIAGNOSTICS Convert diagnostic structs into readable text.
 
     if nargin < 2 || isempty(titleText)
         titleText = 'EyeSort input diagnostics';

@@ -296,14 +296,14 @@ function stats = apply_batch(files, fmt)
     nFiles = length(files);
     stats = struct('converted', 0, 'skipped', 0, 'failed', 0, 'firstConvertedFile', '');
     fprintf('Converting event codes in %d dataset(s) to format ''%s''...\n', nFiles, fmt);
-    h = waitbar(0, 'Converting event codes...', 'Name', 'Convert Event Codes');
+    h = eyesort_waitbar(0, 'Converting event codes...', 'Name', 'Convert Event Codes');
     cleanup = onCleanup(@() safe_delete(h));
 
     for i = 1:nFiles
         [folder, name, ext] = fileparts(files{i});
         fname = [name ext];
         try
-            waitbar((i-1)/nFiles, h, sprintf('Loading %s...', fname));
+            eyesort_waitbar((i-1)/nFiles, h, sprintf('Loading %s...', fname));
             tmp = pop_loadset('filename', fname, 'filepath', folder);
 
             if ~isfield(tmp, 'event') || isempty(tmp.event) || ...
@@ -313,11 +313,11 @@ function stats = apply_batch(files, fmt)
                 continue;
             end
 
-            waitbar((i-0.5)/nFiles, h, sprintf('Converting %s...', fname));
+            eyesort_waitbar((i-0.5)/nFiles, h, sprintf('Converting %s...', fname));
             tmp = convert_event_codes(tmp, fmt);
             tmp = eeg_checkset(tmp, 'eventconsistency');
 
-            waitbar((i-0.25)/nFiles, h, sprintf('Saving %s...', fname));
+            eyesort_waitbar((i-0.25)/nFiles, h, sprintf('Saving %s...', fname));
             pop_saveset(tmp, 'filename', fname, 'filepath', folder, 'savemode', 'twofiles');
             fprintf('  Converted %d/%d: %s\n', i, nFiles, fname);
             stats.converted = stats.converted + 1;

@@ -335,6 +335,7 @@ function [EEG, com] = pop_import_ia_columns(EEG)
         modifiedCount = 0;
         shownImportDialog = false;
         hasImportErrors = false;
+        firstModifiedIdx = [];
 
         for i = 1:length(localALLEEG)
             if isfield(localALLEEG(i), 'eyesort_processed') && localALLEEG(i).eyesort_processed
@@ -342,6 +343,9 @@ function [EEG, com] = pop_import_ia_columns(EEG)
                     localALLEEG(i) = import_ia_columns(localALLEEG(i), filePath, condColName, itemColName, selectedCols, 'none');
                     localALLEEG(i) = eeg_checkset(localALLEEG(i), 'eventconsistency');
                     modifiedCount = modifiedCount + 1;
+                    if isempty(firstModifiedIdx)
+                        firstModifiedIdx = i;
+                    end
                     % Show diagnostic dialog for the first affected dataset;
                     % always track error severity regardless of dialog state.
                     if isfield(localALLEEG(i), 'eyesort_import_diagnostics')
@@ -371,9 +375,12 @@ function [EEG, com] = pop_import_ia_columns(EEG)
             end
         end
 
-        % Update base workspace
+        % Update base workspace with the first updated dataset for inspection
         assignin('base', 'ALLEEG', localALLEEG);
-        assignin('base', 'EEG', localALLEEG(end));
+        if ~isempty(firstModifiedIdx)
+            assignin('base', 'EEG', localALLEEG(firstModifiedIdx));
+            assignin('base', 'CURRENTSET', firstModifiedIdx);
+        end
         try
             eeglab('redraw');
         catch
@@ -399,14 +406,15 @@ function [EEG, com] = pop_import_ia_columns(EEG)
     end
 
     function importBatch(filePath, condColName, itemColName, selectedCols, bPaths, bNames)
-        h = waitbar(0, 'Importing columns into batch datasets...', 'Name', 'EyeSort - Import');
+        h = eyesort_waitbar(0, 'Importing columns into batch datasets...', 'Name', 'EyeSort - Import');
         successCount = 0;
         shownImportDialog = false;
         hasImportErrors = false;
+        firstImportedPath = '';
 
         for i = 1:length(bPaths)
-            waitbar(i / length(bPaths), h, sprintf('Processing %d of %d: %s', ...
-                i, length(bPaths), strrep(bNames{i}, '_', ' ')));
+            eyesort_waitbar(i / length(bPaths), h, sprintf('Processing %d of %d: %s', ...
+                i, length(bPaths), bNames{i}));
 
             if ~exist(bPaths{i}, 'file')
                 warning('EYESORT:FileNotFound', 'File not found, skipping: %s', bPaths{i});
@@ -443,6 +451,9 @@ function [EEG, com] = pop_import_ia_columns(EEG)
                 % Save back to the same path
                 pop_saveset(batchEEG, 'filename', bPaths{i}, 'savemode', 'twofiles');
                 successCount = successCount + 1;
+                if isempty(firstImportedPath)
+                    firstImportedPath = bPaths{i};
+                end
 
                 clear batchEEG;
             catch ME
@@ -458,6 +469,22 @@ function [EEG, com] = pop_import_ia_columns(EEG)
         end
 
         delete(h);
+
+        % Reload the first updated dataset so EEGLAB reflects the import
+        if successCount > 0 && ~isempty(firstImportedPath)
+            try
+                firstEEG = pop_loadset('filename', firstImportedPath);
+                firstEEG = eeg_checkset(firstEEG);
+                if ~isfield(firstEEG, 'saved')
+                    firstEEG.saved = 'yes';
+                end
+                assignin('base', 'EEG', firstEEG);
+                fprintf('Loaded first imported dataset for inspection: %s\n', firstEEG.filename);
+            catch ME
+                warning('EYESORT:LoadError', 'Could not load first imported dataset: %s', ME.message);
+            end
+        end
+
         if successCount > 0
             update_eyesort_session_state('importFilePath', filePath, ...
                 'importCondColName', condColName, 'importItemColName', itemColName, ...

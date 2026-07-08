@@ -45,11 +45,11 @@ processed_count = 0;
 failed_files = {};
 
 % Create progress bar
-h = waitbar(0, 'Applying labels to all datasets...', 'Name', 'Batch Labeling');
+h = eyesort_waitbar(0, 'Applying labels to all datasets...', 'Name', 'Batch Labeling');
 
 try
     for i = 1:length(batchFilePaths)
-        waitbar(i/length(batchFilePaths), h, sprintf('Labeling dataset %d of %d: %s', i, length(batchFilePaths), batchFilenames{i}));
+        eyesort_waitbar(i/length(batchFilePaths), h, sprintf('Labeling dataset %d of %d: %s', i, length(batchFilePaths), batchFilenames{i}));
         
         try
             % Load dataset from file

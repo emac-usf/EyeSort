@@ -15,14 +15,15 @@ function [diagnostics, summary] = validate_triggers(EEG, startCode, endCode, con
 
     diagnostics = empty_diagnostics();
     eventTypes = event_type_strings(EEG);
+    [eventNorm, eventNum] = precompute_event_features(eventTypes);
 
     summary = struct();
     summary.eventCount = length(eventTypes);
     summary.eventExamples = event_examples(eventTypes, 10);
-    summary.start = match_trigger_list(eventTypes, {startCode});
-    summary.end = match_trigger_list(eventTypes, {endCode});
-    summary.condition = match_trigger_list(eventTypes, conditionTriggers);
-    summary.item = match_trigger_list(eventTypes, itemTriggers);
+    summary.start = match_trigger_list(eventTypes, {startCode}, eventNorm, eventNum);
+    summary.end = match_trigger_list(eventTypes, {endCode}, eventNorm, eventNum);
+    summary.condition = match_trigger_list(eventTypes, conditionTriggers, eventNorm, eventNum);
+    summary.item = match_trigger_list(eventTypes, itemTriggers, eventNorm, eventNum);
     summary.sentenceStart = [];
     summary.sentenceEnd = [];
 
@@ -49,7 +50,7 @@ function [diagnostics, summary] = validate_triggers(EEG, startCode, endCode, con
         diagnostics(end+1) = make_diag('error', 'Condition Triggers', 'conditionTriggers', join_triggers(conditionTriggers), ...
             'No EEG events matched any condition trigger. Condition/item keys cannot be created.', ...
             sprintf('Check the condition trigger text, prefix, and numbers against EEG.event.type. Examples: %s', strjoin(summary.eventExamples, ', ')));
-    elseif count_numeric_matched_events(eventTypes, conditionTriggers) == 0
+    elseif summary.condition.numericMatchedEventCount == 0
         diagnostics(end+1) = make_diag('error', 'Condition Triggers', 'conditionTriggers', join_triggers(conditionTriggers), ...
             'Condition triggers matched EEG events, but no matched condition event contained a numeric value for the IA-file key.', ...
             'Use condition trigger events that include the numeric condition code used by the IA file, or update EyeSort before using nonnumeric condition keys.');
@@ -63,7 +64,7 @@ function [diagnostics, summary] = validate_triggers(EEG, startCode, endCode, con
         diagnostics(end+1) = make_diag('error', 'Item Triggers', 'itemTriggers', join_triggers(itemTriggers), ...
             'No EEG events matched any item trigger. Condition/item keys cannot be created.', ...
             sprintf('Check the item trigger text, prefix, and numbers against EEG.event.type. Examples: %s', strjoin(summary.eventExamples, ', ')));
-    elseif count_numeric_matched_events(eventTypes, itemTriggers) == 0
+    elseif summary.item.numericMatchedEventCount == 0
         diagnostics(end+1) = make_diag('error', 'Item Triggers', 'itemTriggers', join_triggers(itemTriggers), ...
             'Item triggers matched EEG events, but no matched item event contained a numeric value for the IA-file key.', ...
             'Use item trigger events that include the numeric item code used by the IA file, or update EyeSort before using nonnumeric item keys.');
@@ -75,8 +76,8 @@ function [diagnostics, summary] = validate_triggers(EEG, startCode, endCode, con
 
     useSentenceCodes = ~isempty(strtrim(trigger_to_char(sentenceStartCode))) && ~isempty(strtrim(trigger_to_char(sentenceEndCode)));
     if useSentenceCodes
-        summary.sentenceStart = match_trigger_list(eventTypes, {sentenceStartCode});
-        summary.sentenceEnd = match_trigger_list(eventTypes, {sentenceEndCode});
+        summary.sentenceStart = match_trigger_list(eventTypes, {sentenceStartCode}, eventNorm, eventNum);
+        summary.sentenceEnd = match_trigger_list(eventTypes, {sentenceEndCode}, eventNorm, eventNum);
         if summary.sentenceStart.totalMatches == 0
             diagnostics(end+1) = make_diag('error', 'Stimulus Start Code', 'sentenceStartCode', trigger_to_char(sentenceStartCode), ...
                 'No EEG events matched the stimulus start code, so the requested eye-event time window cannot open.', ...
@@ -90,18 +91,14 @@ function [diagnostics, summary] = validate_triggers(EEG, startCode, endCode, con
     end
 end
 
-function count = count_numeric_matched_events(eventTypes, triggers)
-    if ~iscell(triggers)
-        triggers = {triggers};
-    end
-    count = 0;
+function [eventNorm, eventNum] = precompute_event_features(eventTypes)
+    eventNorm = cell(1, length(eventTypes));
+    eventNum = cell(1, length(eventTypes));
     for iEvt = 1:length(eventTypes)
-        for iTrig = 1:length(triggers)
-            if trigger_match(eventTypes{iEvt}, triggers{iTrig}) && ...
-                    ~isempty(regexp(strrep(eventTypes{iEvt}, ' ', ''), '\d+', 'once'))
-                count = count + 1;
-                break;
-            end
+        eventNorm{iEvt} = strrep(strtrim(value_to_char(eventTypes{iEvt})), ' ', '');
+        eventNum{iEvt} = regexp(eventNorm{iEvt}, '\d+', 'match', 'once');
+        if isempty(eventNum{iEvt})
+            eventNum{iEvt} = '';
         end
     end
 end
