@@ -795,7 +795,7 @@ function [EEG, com] = pop_label_datasets(EEG)
             startLabelCount = EEG.eyesort_label_count;
         end
         
-        h = waitbar(0, 'Applying labels...', 'Name', 'Eye-Tracking Event Labeling');
+        h = eyesort_waitbar(0, 'Applying labels...', 'Name', 'Eye-Tracking Event Labeling');
         try
             for qi = 1:nLabels
                 currentLabelNum = startLabelCount + qi;
@@ -803,7 +803,7 @@ function [EEG, com] = pop_label_datasets(EEG)
                 if isfield(pending_labels{qi}, 'labelDescription')
                     desc = pending_labels{qi}.labelDescription;
                 end
-                waitbar(qi / nLabels, h, sprintf('Applying label %d of %d: %s', qi, nLabels, desc));
+                eyesort_waitbar(qi / nLabels, h, sprintf('Applying label %d of %d: %s', qi, nLabels, desc));
                 label_params = convert_config_to_params_gui(pending_labels{qi});
                 if ~isempty(saved_conflict_resolution)
                     label_params = [label_params, {'conflictResolution', saved_conflict_resolution}];
@@ -992,13 +992,14 @@ function [EEG, com] = pop_label_datasets(EEG)
         % all labels and all datasets so the conflict dialog never repeats.
         all_rows = {};
         processed_count = 0;
+        first_processed_path = '';
 
-        h = waitbar(0, 'Batch labeling...', 'Name', 'Batch Processing');
+        h = eyesort_waitbar(0, 'Batch labeling...', 'Name', 'Batch Processing');
         try
             for i = 1:length(batchFilePaths)
-                waitbar((i-1)/length(batchFilePaths), h, ...
+                eyesort_waitbar((i-1)/length(batchFilePaths), h, ...
                     sprintf('Processing %d of %d: %s', i, length(batchFilePaths), ...
-                    strrep(batchFilenames{i}, '_', ' ')));
+                    batchFilenames{i}));
 
                 try
                     % Compute clean filename once per dataset
@@ -1066,6 +1067,10 @@ function [EEG, com] = pop_label_datasets(EEG)
                     pop_saveset(tempEEG, 'filename', output_path, 'savemode', 'twofiles');
                     clear tempEEG;
 
+                    if isempty(first_processed_path)
+                        first_processed_path = output_path;
+                    end
+
                     processed_count = processed_count + 1;
                     fprintf('Processed %d/%d: %s\n', processed_count, length(batchFilePaths), cleanFileName);
 
@@ -1109,6 +1114,22 @@ function [EEG, com] = pop_label_datasets(EEG)
         % Clean up and close
         cleanup_temp_files(batchFilePaths);
         evalin('base', 'clear eyesort_batch_file_paths eyesort_batch_filenames eyesort_batch_mode');
+
+        % Reload the first processed dataset so EEGLAB shows labeled output
+        % instead of the leftover _textia_temp.set from Text IA processing.
+        if processed_count > 0 && ~isempty(first_processed_path)
+            try
+                EEG = pop_loadset('filename', first_processed_path);
+                EEG = eeg_checkset(EEG);
+                if ~isfield(EEG, 'saved')
+                    EEG.saved = 'yes';
+                end
+                assignin('base', 'EEG', EEG);
+                fprintf('Loaded first processed dataset for inspection: %s\n', EEG.filename);
+            catch ME
+                warning('EYESORT:LoadError', 'Could not load first processed dataset: %s', ME.message);
+            end
+        end
 
         com = sprintf('EEG = pop_label_datasets(EEG); %% Batch labeling completed with %d labels applied', current_batch_label_count);
 

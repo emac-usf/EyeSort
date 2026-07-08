@@ -935,15 +935,14 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                 [labeledEEG.event.bdf_label_description] = deal('');
                 [labeledEEG.event.bdf_full_description] = deal('');
             end
-            if ~isfield(labeledEEG.event, 'current_word_text')
-                [labeledEEG.event.current_word_text] = deal('');
-            end
             bdf_fields_initialized = true;
         end
         
-        % Resolve the actual word text from the positional current_word index
+        % Prefer current_word_text from trial_labeling; fall back to resolving from current_word
         wordText = '';
-        if isfield(evt, 'current_word') && ischar(evt.current_word) && ~isempty(evt.current_word)
+        if isfield(evt, 'current_word_text') && ischar(evt.current_word_text) && ~isempty(evt.current_word_text)
+            wordText = evt.current_word_text;
+        elseif isfield(evt, 'current_word') && ischar(evt.current_word) && ~isempty(evt.current_word)
             try
                 [regionNum, wordNum] = parse_word_region(evt.current_word);
                 wordsField = sprintf('region%d_words', regionNum);
@@ -955,8 +954,8 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                 end
             catch
             end
+            labeledEEG.event(mm).current_word_text = wordText;
         end
-        labeledEEG.event(mm).current_word_text = wordText;
         
         % Resolve condition description (needed for BDF fields and text formats)
         conditionDesc = '';
@@ -1107,10 +1106,12 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                     end
                 end
                 
-                % Resolve word text for conflict events
+                % Prefer current_word_text from trial_labeling; fall back to resolving
                 cEvt = labeledEEG.event(evt_idx);
                 cWordText = '';
-                if isfield(cEvt, 'current_word') && ischar(cEvt.current_word) && ~isempty(cEvt.current_word)
+                if isfield(cEvt, 'current_word_text') && ischar(cEvt.current_word_text) && ~isempty(cEvt.current_word_text)
+                    cWordText = cEvt.current_word_text;
+                elseif isfield(cEvt, 'current_word') && ischar(cEvt.current_word) && ~isempty(cEvt.current_word)
                     try
                         [rn, wn] = parse_word_region(cEvt.current_word);
                         wf = sprintf('region%d_words', rn);
@@ -1122,8 +1123,8 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                         end
                     catch
                     end
+                    labeledEEG.event(evt_idx).current_word_text = cWordText;
                 end
-                labeledEEG.event(evt_idx).current_word_text = cWordText;
                 
                 % Set type based on eventFormat
                 switch eventFormat

@@ -19,7 +19,7 @@
 % Author: Brandon Snyder
 
 function expandedTriggers = expand_trigger_ranges(triggerInput)
-%EXPAND_TRIGGER_RANGES - Expand trigger ranges like "S1:S112" into individual triggers
+% EXPAND_TRIGGER_RANGES - Expand trigger ranges like "S1:S112" into individual triggers
 %
 % This function handles the complex logic of expanding trigger ranges while
 % maintaining backward compatibility. It's the only duplication worth centralizing.

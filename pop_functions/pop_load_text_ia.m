@@ -729,8 +729,17 @@ function [EEG, com] = pop_load_text_ia(EEG)
 
         % Validate trigger inputs against the loaded dataset before processing.
         % This catches format/key mismatches close to the user input fields.
-        [triggerDiagnostics, ~] = validate_triggers(EEG, startCodeStr, endCodeStr, ...
-            condTriggers, itemTriggers, sentenceStartCodeStr, sentenceEndCodeStr);
+        validationWaitbar = [];
+        try
+            validationWaitbar = eyesort_waitbar(0, 'Validating trigger inputs...', 'Name', 'EyeSort Step 2 Validation');
+            drawnow;
+            [triggerDiagnostics, ~] = validate_triggers(EEG, startCodeStr, endCodeStr, ...
+                condTriggers, itemTriggers, sentenceStartCodeStr, sentenceEndCodeStr);
+        catch validationError
+            close_validation_waitbar(validationWaitbar);
+            rethrow(validationError);
+        end
+        close_validation_waitbar(validationWaitbar);
         hasTriggerErrors = report_diagnostics(triggerDiagnostics, ...
             'EyeSort Step 2 Trigger Validation', 'dialog');
         if hasTriggerErrors
@@ -781,7 +790,7 @@ function [EEG, com] = pop_load_text_ia(EEG)
         try
             if batch_mode
                 % Process all datasets in batch mode (one at a time for memory efficiency)
-                h = waitbar(0, 'Processing Text IA for all datasets...', 'Name', 'Batch Text IA Processing');
+                h = eyesort_waitbar(0, 'Processing Text IA for all datasets...', 'Name', 'Batch Text IA Processing');
                 processed_count = 0;
                 failed_count = 0;
                 shownAssignmentDialog = false;
@@ -797,7 +806,7 @@ function [EEG, com] = pop_load_text_ia(EEG)
                 end
                 
                 for i = 1:length(batchFilePaths)
-                    waitbar(i/length(batchFilePaths), h, sprintf('Processing dataset %d of %d: %s', i, length(batchFilePaths), strrep(batchFilenames{i}, '_', ' ')));
+                    eyesort_waitbar(i/length(batchFilePaths), h, sprintf('Processing dataset %d of %d: %s', i, length(batchFilePaths), batchFilenames{i}));
                     
                     try
                         % Load dataset
@@ -931,9 +940,9 @@ function [EEG, com] = pop_load_text_ia(EEG)
                 
             else
                 % Single dataset processing
-                h = waitbar(0, 'Processing interest areas...', 'Name', 'Text IA Processing');
+                h = eyesort_waitbar(0, 'Processing interest areas...', 'Name', 'Text IA Processing');
                 try
-                    waitbar(0.3, h, 'Assigning fixations and saccades to interest area regions...');
+                    eyesort_waitbar(0.3, h, 'Assigning fixations and saccades to interest area regions...');
                     % Suppress duplicate CLI diagnostics — trigger pre-check dialog ran above
                     processedEEG = compute_text_based_ia(EEG, txtFilePath, offset, pxPerChar, ...
                                               numRegions, regionNames, conditionColName, ...
@@ -943,7 +952,7 @@ function [EEG, com] = pop_load_text_ia(EEG)
                                               sentenceStartCodeStr, sentenceEndCodeStr, conditionTypeColNames, ...
                                               'rtl', rtl, 'reportMode', 'none');
                     processedEEG = eeg_checkset(processedEEG, 'eventconsistency');
-                    waitbar(1, h, 'Done!');
+                    eyesort_waitbar(1, h, 'Done!');
                 catch ME
                     delete(h);
                     rethrow(ME);
@@ -1080,6 +1089,12 @@ function [EEG, com] = pop_load_text_ia(EEG)
             end
         else
             value = currentText; % Not grey or no placeholder data
+        end
+    end
+
+    function close_validation_waitbar(h)
+        if ~isempty(h) && ishandle(h)
+            close(h);
         end
     end
 end
