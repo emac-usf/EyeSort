@@ -3,6 +3,8 @@
 % Copyright (C) 2025 Eye Movements & Cognition Lab (USF)
 % Copyright (C) 2025 Brandon Snyder, Sara Milligan, Elizabeth Schotter
 
+% Author: Brandon Snyder
+
 function diagnostics = interest_area_assignment_diagnostics(step2Diagnostics, ...
         conditionColName, itemColName, conditionTriggerStr, itemTriggerStr)
 %INTEREST_AREA_ASSIGNMENT_DIAGNOSTICS Build diagnostic struct from Step 2 assignment data.

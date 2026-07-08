@@ -3,6 +3,8 @@
 % Copyright (C) 2025 Eye Movements & Cognition Lab (USF)
 % Copyright (C) 2025 Brandon Snyder, Sara Milligan, Elizabeth Schotter
 
+% Author: Brandon Snyder
+
 function message = format_diagnostics(diagnostics, titleText)
 % FORMAT_DIAGNOSTICS Convert diagnostic structs into readable text.
 

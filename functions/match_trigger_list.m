@@ -3,6 +3,8 @@
 % Copyright (C) 2025 Eye Movements & Cognition Lab (USF)
 % Copyright (C) 2025 Brandon Snyder, Sara Milligan, Elizabeth Schotter
 
+% Author: Brandon Snyder
+
 function summary = match_trigger_list(eventTypes, triggers, eventNorm, eventNum)
 %MATCH_TRIGGER_LIST Count event matches for user trigger inputs.
 

@@ -3,6 +3,8 @@
 % Copyright (C) 2025 Eye Movements & Cognition Lab (USF)
 % Copyright (C) 2025 Brandon Snyder, Sara Milligan, Elizabeth Schotter
 
+% Author: Brandon Snyder
+
 function summaryPath = next_available_eyesort_summary_file(outputDir)
 % NEXT_AVAILABLE_EYESORT_SUMMARY_FILE Return the next unused summary CSV path.
 

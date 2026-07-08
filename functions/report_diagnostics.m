@@ -3,6 +3,8 @@
 % Copyright (C) 2025 Eye Movements & Cognition Lab (USF)
 % Copyright (C) 2025 Brandon Snyder, Sara Milligan, Elizabeth Schotter
 
+% Author: Brandon Snyder
+
 function hasErrors = report_diagnostics(diagnostics, titleText, mode)
 %REPORT_DIAGNOSTICS Show or throw formatted diagnostics.
 %

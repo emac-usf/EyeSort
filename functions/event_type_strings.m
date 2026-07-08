@@ -3,6 +3,8 @@
 % Copyright (C) 2025 Eye Movements & Cognition Lab (USF)
 % Copyright (C) 2025 Brandon Snyder, Sara Milligan, Elizabeth Schotter
 
+% Author: Brandon Snyder
+
 function eventTypes = event_type_strings(EEG)
 %EVENT_TYPE_STRINGS Return EEG.event.type values as a cellstr.
 

@@ -3,6 +3,8 @@
 % Copyright (C) 2025 Eye Movements & Cognition Lab (USF)
 % Copyright (C) 2025 Brandon Snyder, Sara Milligan, Elizabeth Schotter
 
+% Author: Brandon Snyder
+
 function append_eyesort_grand_totals(csvPath)
 % APPEND_EYESORT_GRAND_TOTALS Append TOTAL rows to an EyeSort summary CSV.
 
