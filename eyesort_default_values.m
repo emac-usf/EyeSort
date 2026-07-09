@@ -6,4 +6,4 @@
 % Author: Brandon Snyder
 
 % Current EyeSort version
-eyesortver = '0.6';
+eyesortver = '1.0';
