@@ -15,7 +15,7 @@ using the plugin on your own data. The README is intentionally brief; the manual
 contains the full tutorials, screenshots, quality-control guidance, and
 troubleshooting details.
 
-## EyeSort v0.6
+## EyeSort v1.0
 
 This release provides the current EEGLAB menu workflow:
 

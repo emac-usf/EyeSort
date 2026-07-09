@@ -1,36 +1,13 @@
-# macOS system files
+# macOS
 .DS_Store
-.AppleDouble
-.LSOverride
-Icon
 ._*
 
-# Thumbnails
-._*
-
-# Files that might appear in the root of a volume
-.DocumentRevisions-V100
-.fseventsd
-.Spotlight-V100
-.TemporaryItems
-.Trashes
-.VolumeIcon.icns
-.com.apple.timemachine.donotpresent
-
-# MATLAB-specific
+# MATLAB editor backups
 *.asv
 *.m~
-*.mex*
 
 # Auto-saved runtime state (last-used configs and queues)
 cache/
 
 # Local MATLAB tests
 tests/
-
-# Directories potentially created on remote AFP share
-.AppleDB
-.AppleDesktop
-Network Trash Folder
-Temporary Items
-.apdisk

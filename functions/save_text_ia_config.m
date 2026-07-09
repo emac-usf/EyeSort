@@ -14,7 +14,7 @@ function save_text_ia_config(config, filename)
     
     if nargin < 2 || isempty(filename)
         % Use default filename with timestamp
-        timestamp = datestr(now, 'yyyymmdd_HHMMSS');
+        timestamp = char(datetime('now', 'Format', 'yyyyMMdd_HHmmss'));
         filename = sprintf('eyesort_text_ia_config_%s.mat', timestamp);
     end
     
@@ -24,8 +24,9 @@ function save_text_ia_config(config, filename)
     end
     
     % Add metadata
-    config.saved_date = datestr(now);
-    config.eyesort_version = 'EyeSort 2025.0.0';
+    eyesort_default_values;
+    config.saved_date = char(datetime('now', 'Format', 'dd-MMM-yyyy HH:mm:ss'));
+    config.eyesort_version = ['EyeSort ' eyesortver];
     config.config_type = 'text_ia';
     
     try
