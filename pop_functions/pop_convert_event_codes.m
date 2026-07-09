@@ -78,7 +78,6 @@ batchMode = ~isempty(batchFiles);
 % Acquire a sample EEG: in batch mode, load just the first file (without
 % touching the base workspace). In single mode, use the provided arg or
 % pull from base.
-sampleEEG = [];
 if batchMode
     fprintf('Convert Event Codes: batch mode detected (%d dataset(s) in %s)\n', ...
         length(batchFiles), batchDir);
@@ -92,7 +91,7 @@ if batchMode
 else
     if nargin < 1 || isempty(EEG)
         try
-            EEG = evalin('base', 'EEG'); %#ok<NASGU> used in nested on_apply
+            EEG = evalin('base', 'EEG'); % used in nested on_apply
         catch
             errordlg('No EEG dataset available.', 'Convert Event Codes');
             return;

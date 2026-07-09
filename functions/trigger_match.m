@@ -6,7 +6,7 @@
 % Author: Brandon Snyder
 
 function [isMatch, matchMode] = trigger_match(eventTrigger, configTrigger)
-%TRIGGER_MATCH Match user trigger input against an EEG event code.
+% TRIGGER_MATCH Match user trigger input against an EEG event code.
 %
 % Matching is intentionally format-open: exact text (ignoring spaces) is
 % preferred, and numeric-only user inputs may match the numeric portion of

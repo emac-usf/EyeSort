@@ -291,7 +291,7 @@ function [EEG, com] = pop_import_ia_columns(EEG)
         colListStr = get(hColList, 'String');
         colListVal = get(hColList, 'Value');
 
-        if isempty(colListVal) || (length(colListStr) == 1 && strcmp(colListStr{1}, '(no additional columns available)'))
+        if isempty(colListVal) || (isscalar(colListStr) && strcmp(colListStr{1}, '(no additional columns available)'))
             errordlg('Please select at least one column to import.', 'EyeSort');
             return;
         end

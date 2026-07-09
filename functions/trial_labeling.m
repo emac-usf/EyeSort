@@ -52,7 +52,7 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
     % Store indices of fixations (in EEG.event) that occur in the last region.
     trialRegressionMap = containers.Map('KeyType', 'double', 'ValueType', 'logical');
     inEndRegion = false;
-    endRegionFixations = [];  
+    endRegionFixations = zeros(1, length(EEG.event));
     endRegionFixationCount = 0;  % number of fixations stored in last region
 
     % - Word and region tracking maps
@@ -149,7 +149,6 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
             sentenceActive = ~useSentenceCodes;  % Reset sentence state for new trial
             % Also, clear any last region storage from previous trial:
             inEndRegion = false;
-            endRegionFixations = [];
             endRegionFixationCount = 0;
             fprintf('Starting trial %d\n', currentTrial);
 
@@ -157,11 +156,10 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
         % Trial end  %
         %%%%%%%%%%%%%% 
         % Check for trial end
-        elseif flexibleTriggerMatch(eventType, endCode)
+        elseif flexibleTriggerMatch(eventTypeNoSpace, endCodeNoSpace)
             % Reset tracking at the end of the trial
             inEndRegion = false;
             endRegionFixationCount = 0;
-            endRegionFixations = [];
 
             % Reset trial-level item and condition numbers
             currentItem = [];
@@ -357,7 +355,6 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
                             if ~inEndRegion
                                 inEndRegion = true;
                                 endRegionFixationCount = 0;
-                                endRegionFixations = [];
                             end
                             endRegionFixationCount = endRegionFixationCount + 1;
                             endRegionFixations(endRegionFixationCount) = iEvt;
@@ -384,7 +381,6 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
                                 % Clear the last-region storage.
                                 inEndRegion = false;
                                 endRegionFixationCount = 0;
-                                endRegionFixations = [];
                             end
                         end
                         %% ======= End of LAST region regression tracking =======
@@ -398,7 +394,6 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
                     if isempty(currentWord) && inEndRegion
                         inEndRegion = false;
                         endRegionFixationCount = 0;
-                        endRegionFixations = [];
                     end
                 end
             end
@@ -445,7 +440,7 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
 
         % Build run structure: compress consecutive same-region fixations into runs.
         % Allows O(R) next/last-region lookup per fixation instead of O(F) scan.
-        runRegions = {};
+        runRegions = cell(numFixations, 1);
         fixToRun = zeros(numFixations, 1);
         curRun = 0;
         prevRunRegion = [];
@@ -458,6 +453,7 @@ function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTr
             fixToRun(iR) = curRun;
         end
         numRuns = curRun;
+        runRegions = runRegions(1:numRuns);
 
         % Compute all fields in one loop over fixations
         for iFixIdx = 1:numFixations

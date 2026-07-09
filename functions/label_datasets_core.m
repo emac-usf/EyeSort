@@ -38,8 +38,7 @@ function [labeledEEG, com, chosenConflictResolution] = label_datasets_core(EEG, 
 %   labeledEEG - Labeled EEG dataset
 %   com         - Command string for EEGLAB history
 
-% Initialize output
-com = '';
+% Initialize output (com is always assigned before return)
 chosenConflictResolution = '';
 
 % Check if first argument is a config file
@@ -252,20 +251,15 @@ try
     labelDesc.fixation_options = fixationOptions;
     labelDesc.saccade_in_options = saccadeInOptions;
     labelDesc.saccade_out_options = saccadeOutOptions;
-    labelDesc.timestamp = datestr(now, 'yyyy-mm-dd HH:MM:SS');
+    labelDesc.timestamp = char(datetime('now', 'Format', 'yyyy-MM-dd HH:mm:ss'));
     
     labeledEEG.eyesort_label_descriptions{end+1} = labelDesc;
     
-    % Generate command string
-    if iscell(timeLockedRegions)
-        % Create cell array string representation manually for compatibility
-        if length(timeLockedRegions) == 1
-            regionStr = sprintf('{''%s''}', timeLockedRegions{1});
-        else
-            regionStr = sprintf('{''%s''}', strjoin(timeLockedRegions, ''', '''));
-        end
+    % Generate command string (timeLockedRegions is always a cell by this point)
+    if isscalar(timeLockedRegions)
+        regionStr = sprintf('{''%s''}', timeLockedRegions{1});
     else
-        regionStr = mat2str(timeLockedRegions);
+        regionStr = sprintf('{''%s''}', strjoin(timeLockedRegions, ''', '''));
     end
     com = sprintf('EEG = label_datasets_core(EEG, ''timeLockedRegions'', %s, ''labelCount'', %d);', ...
                 regionStr, labelCount);
@@ -285,7 +279,7 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                                                 passOptions, prevRegions, nextRegions, ...
                                                 fixationOptions, saccadeInOptions, ...
                                                 saccadeOutOptions, labelCount, ...
-                                                fixationType, fixationXField, saccadeType, ...
+                                                fixationType, ~, saccadeType, ...
                                                 saccadeStartXField, saccadeEndXField, labelDescription, rtl, conflictResolution, showRegionMap, eventFormat)
     % Optimized internal labeling implementation with O(n) complexity
     
@@ -358,9 +352,6 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
         fprintf('=============================================\n\n');
     end
     
-    % Track events with conflicting codes
-    conflictingEvents = {};
-    
     % ========== PERFORMANCE OPTIMIZATION: PRE-COMPUTE ALL INDICES ==========
     if showRegionMap
         fprintf('Pre-computing event indices for optimized labeling...\n');
@@ -368,6 +359,11 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
     
     % Pre-extract all event fields using bulk struct-array access (C-speed)
     nEvents = length(EEG.event);
+
+    % Track events with conflicting codes (preallocated; trimmed after scan)
+    conflictingEvents = cell(nEvents, 1);
+    nConflicts = 0;
+
     eventTypes        = {EEG.event.type}';
     trialNumbers      = zeros(nEvents, 1);
     regionPassNumbers = zeros(nEvents, 1);
@@ -866,14 +862,12 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
         matchedEventCount = matchedEventCount + 1;
         
         % Generate the 6-digit event code
-        condStr = '';
         if conditionNumbers(mm) > 0
             condStr = sprintf('%02d', mod(conditionNumbers(mm), 100));
         else
             condStr = '00';
         end
         
-        regionStr = '';
         if ~isempty(currentRegions{mm}) && isKey(regionCodeMap, currentRegions{mm})
             regionStr = regionCodeMap(currentRegions{mm});
         else
@@ -896,7 +890,8 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
             if isfield(evt, 'bdf_label_description')
                 existingDesc = evt.bdf_label_description;
             end
-            conflictingEvents{end+1} = struct(...
+            nConflicts = nConflicts + 1;
+            conflictingEvents{nConflicts} = struct(...
                 'event_index', mm, ...
                 'existing_code', evt.eyesort_full_code, ...
                 'existing_desc', existingDesc, ...
@@ -1035,16 +1030,19 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
         end
     end
     
+    % Trim preallocated conflict list to actual count
+    conflictingEvents = conflictingEvents(1:nConflicts);
+    
     % Handle conflicting events if any were found
-    if ~isempty(conflictingEvents)
+    if nConflicts > 0
         if matchedEventCount > 0
-            conflictPercentage = (length(conflictingEvents) / matchedEventCount) * 100;
+            conflictPercentage = (nConflicts / matchedEventCount) * 100;
         else
             conflictPercentage = 100;
         end
         
         fprintf('Warning: Found %d events with conflicting codes (%.1f%% of matched events).\n', ...
-                length(conflictingEvents), conflictPercentage);
+                nConflicts, conflictPercentage);
         fprintf('These events match multiple label criteria.\n');
         
         % Ask user whether to replace existing codes (or use saved choice)
