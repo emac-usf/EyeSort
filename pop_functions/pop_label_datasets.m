@@ -112,17 +112,22 @@ function [EEG, com] = pop_label_datasets(EEG)
         % Otherwise extract from events but preserve order of first appearance
         fprintf('No region_names field found, extracting from events and preserving order\n');
         seen = containers.Map('KeyType', 'char', 'ValueType', 'logical');
+        regionNames = {};
         if isfield(EEG.event, 'current_region')
+            regionNames = cell(length(EEG.event), 1);
+            nRegions = 0;
             for kk = 1:length(EEG.event)
                 if isfield(EEG.event(kk), 'current_region') && ~isempty(EEG.event(kk).current_region)
                     regionName = EEG.event(kk).current_region;
                     % Only add each region once, preserving order of first appearance
                     if ~isKey(seen, regionName)
                         seen(regionName) = true;
-                        regionNames{end+1} = regionName;
+                        nRegions = nRegions + 1;
+                        regionNames{nRegions} = regionName;
                     end
                 end
             end
+            regionNames = regionNames(1:nRegions);
         end
     end
     
@@ -193,6 +198,13 @@ function [EEG, com] = pop_label_datasets(EEG)
     regionsPerRow = 5;
     numRows = ceil(numRegions / regionsPerRow);
     
+    % Preallocate geometry and uilist slots for region checkbox rows
+    nBaseGeom = numel(geomhoriz);
+    nBaseUI = numel(uilist);
+    geomhoriz = [geomhoriz, cell(1, numRows)];
+    geomvert = [geomvert, ones(1, numRows)];
+    uilist = [uilist, cell(1, numRegions)];
+    
     for row = 1:numRows
         % Add geometry for this row
         columnsInRow = min(regionsPerRow, numRegions - (row-1)*regionsPerRow);
@@ -200,15 +212,14 @@ function [EEG, com] = pop_label_datasets(EEG)
         for col = 1:columnsInRow
             rowGeom(col) = 1/columnsInRow;
         end
-        geomhoriz{end+1} = rowGeom;
-        geomvert(end+1) = 1;
+        geomhoriz{nBaseGeom + row} = rowGeom;
         
         % Add checkboxes for this row
         for col = 1:columnsInRow
             regionIdx = (row-1)*regionsPerRow + col;
             tag = sprintf('chkRegion%d', regionIdx);
             regionCheckboxTags{regionIdx} = tag;
-            uilist{end+1} = {'Style','checkbox','String', regionNames{regionIdx}, 'tag', tag};
+            uilist{nBaseUI + regionIdx} = {'Style','checkbox','String', regionNames{regionIdx}, 'tag', tag};
         end
     end
     
@@ -234,6 +245,13 @@ function [EEG, com] = pop_label_datasets(EEG)
         {'Style','text','String','Previous Region: (region visited immediately before the time-locked region)', 'FontWeight', 'bold'}, ...
     };
     
+    % Preallocate Previous Region rows, Next Region title, and Next Region rows
+    nAddGeomBase = numel(additionalGeomHoriz);
+    nAddUIBase = numel(additionalUIList);
+    additionalGeomHoriz = [additionalGeomHoriz, cell(1, numRows + 1 + numRows)];
+    additionalGeomVert = [additionalGeomVert, ones(1, numRows + 1 + numRows)];
+    additionalUIList = [additionalUIList, cell(1, numRegions + 1 + numRegions)];
+    
     % Add Previous Region checkboxes with similar logic
     for row = 1:numRows
         % Add geometry for this row
@@ -242,24 +260,26 @@ function [EEG, com] = pop_label_datasets(EEG)
         for col = 1:columnsInRow
             rowGeom(col) = 1/columnsInRow;
         end
-        additionalGeomHoriz{end+1} = rowGeom;
-        additionalGeomVert(end+1) = 1;
+        additionalGeomHoriz{nAddGeomBase + row} = rowGeom;
         
         % Add checkboxes for this row
         for col = 1:columnsInRow
             regionIdx = (row-1)*regionsPerRow + col;
             tag = sprintf('chkPrevRegion%d', regionIdx);
             prevRegionCheckboxTags{regionIdx} = tag;
-            additionalUIList{end+1} = {'Style','checkbox','String', regionNames{regionIdx}, 'tag', tag};
+            additionalUIList{nAddUIBase + regionIdx} = {'Style','checkbox','String', regionNames{regionIdx}, 'tag', tag};
         end
     end
     
     % Add Next Region title (description folded in) after Previous Region checkboxes
-    additionalGeomHoriz{end+1} = 1;
-    additionalGeomVert(end+1) = 1;
-    additionalUIList{end+1} = {'Style','text','String','Next Region: (region visited immediately after the time-locked region)', 'FontWeight', 'bold'};
+    nextTitleGeomIdx = nAddGeomBase + numRows + 1;
+    nextTitleUIIdx = nAddUIBase + numRegions + 1;
+    additionalGeomHoriz{nextTitleGeomIdx} = 1;
+    additionalUIList{nextTitleUIIdx} = {'Style','text','String','Next Region: (region visited immediately after the time-locked region)', 'FontWeight', 'bold'};
     
     % Add Next Region checkboxes with similar logic
+    nextGeomBase = nextTitleGeomIdx;
+    nextUIBase = nextTitleUIIdx;
     for row = 1:numRows
         % Add geometry for this row
         columnsInRow = min(regionsPerRow, numRegions - (row-1)*regionsPerRow);
@@ -267,15 +287,14 @@ function [EEG, com] = pop_label_datasets(EEG)
         for col = 1:columnsInRow
             rowGeom(col) = 1/columnsInRow;
         end
-        additionalGeomHoriz{end+1} = rowGeom;
-        additionalGeomVert(end+1) = 1;
+        additionalGeomHoriz{nextGeomBase + row} = rowGeom;
         
         % Add checkboxes for this row
         for col = 1:columnsInRow
             regionIdx = (row-1)*regionsPerRow + col;
             tag = sprintf('chkNextRegion%d', regionIdx);
             nextRegionCheckboxTags{regionIdx} = tag;
-            additionalUIList{end+1} = {'Style','checkbox','String', regionNames{regionIdx}, 'tag', tag};
+            additionalUIList{nextUIBase + regionIdx} = {'Style','checkbox','String', regionNames{regionIdx}, 'tag', tag};
         end
     end
     
@@ -333,7 +352,7 @@ function [EEG, com] = pop_label_datasets(EEG)
     uilist = [uilist, additionalUIList];
     
     % Create the GUI using supergui (let it create and size the figure)
-    [~, ~, ~, hFig] = supergui('geomhoriz', geomhoriz, 'geomvert', geomvert, 'uilist', uilist, 'title', 'Eye-Tracking Event Labeling');
+    [~, ~, ~, ~] = supergui('geomhoriz', geomhoriz, 'geomvert', geomvert, 'uilist', uilist, 'title', 'Eye-Tracking Event Labeling');
     
     % Bring window to front
     figure(gcf);
@@ -791,11 +810,15 @@ function [EEG, com] = pop_label_datasets(EEG)
                 end
                 eyesort_waitbar(qi / nLabels, h, sprintf('Applying label %d of %d: %s', qi, nLabels, desc));
                 label_params = convert_config_to_params_gui(pending_labels{qi});
-                if ~isempty(saved_conflict_resolution)
-                    label_params = [label_params, {'conflictResolution', saved_conflict_resolution}];
+                conflictArg = saved_conflict_resolution;
+                if isempty(conflictArg)
+                    conflictArg = 'ask';
                 end
-                label_params = [label_params, {'eventFormat', selectedEventFormat}];
-                [EEG, label_com, chosen] = label_datasets_core(EEG, label_params{:}, 'labelCount', currentLabelNum, 'showRegionMap', qi == 1);
+                [EEG, label_com, chosen] = label_datasets_core(EEG, label_params{:}, ...
+                    'conflictResolution', conflictArg, ...
+                    'labelCount', currentLabelNum, ...
+                    'showRegionMap', qi == 1, ...
+                    'eventFormat', selectedEventFormat);
                 com = label_com;
                 if ~isempty(chosen)
                     saved_conflict_resolution = chosen;
@@ -868,7 +891,7 @@ function [EEG, com] = pop_label_datasets(EEG)
             end
             diagnosticText = '';
             if ~isempty(label_diagnostics{qi}) && isfield(label_diagnostics{qi}, 'summary')
-                diagnosticText = sprintf('\n    %s', strrep(label_diagnostics{qi}.summary, sprintf('\n'), sprintf('\n    ')));
+                diagnosticText = sprintf('\n    %s', strrep(label_diagnostics{qi}.summary, newline, [newline '    ']));
             end
             if matched_counts(qi) > 0
                 summaryLines{qi} = sprintf('  Label %02d (%s): %d event(s) matched%s', qi, desc, matched_counts(qi), diagnosticText);
@@ -883,8 +906,9 @@ function [EEG, com] = pop_label_datasets(EEG)
             allFD = {EEG.event.bdf_full_description};
             allFD = allFD(~cellfun(@isempty, allFD));
             uniqueFD = unique(allFD);
+            fdLines = cell(1, length(uniqueFD));
             for ui = 1:length(uniqueFD)
-                fdLines{end+1} = sprintf('  %-40s : %d trial(s)', uniqueFD{ui}, sum(strcmp(allFD, uniqueFD{ui})));
+                fdLines{ui} = sprintf('  %-40s : %d trial(s)', uniqueFD{ui}, sum(strcmp(allFD, uniqueFD{ui})));
             end
         end
         fdStr = '';
@@ -976,15 +1000,17 @@ function [EEG, com] = pop_label_datasets(EEG)
 
         % saved_conflict_resolution threads the user's "remember" choice across
         % all labels and all datasets so the conflict dialog never repeats.
-        all_rows = {};
+        nBatchFiles = length(batchFilePaths);
+        rowBatches = cell(1, nBatchFiles * max(nLabels, 1));
+        nRowBatches = 0;
         processed_count = 0;
         first_processed_path = '';
 
         h = eyesort_waitbar(0, 'Batch labeling...', 'Name', 'Batch Processing');
         try
-            for i = 1:length(batchFilePaths)
-                eyesort_waitbar((i-1)/length(batchFilePaths), h, ...
-                    sprintf('Processing %d of %d: %s', i, length(batchFilePaths), ...
+            for i = 1:nBatchFiles
+                eyesort_waitbar((i-1)/nBatchFiles, h, ...
+                    sprintf('Processing %d of %d: %s', i, nBatchFiles, ...
                     batchFilenames{i}));
 
                 try
@@ -1015,8 +1041,9 @@ function [EEG, com] = pop_label_datasets(EEG)
                         labelNum = current_batch_label_count + qi;
 
                         label_params = convert_config_to_params_gui(pending_labels{qi});
-                        if ~isempty(saved_conflict_resolution)
-                            label_params = [label_params, {'conflictResolution', saved_conflict_resolution}];
+                        conflictArg = saved_conflict_resolution;
+                        if isempty(conflictArg)
+                            conflictArg = 'ask';
                         end
 
                         % Snapshot existing descriptions before this label so we can
@@ -1028,7 +1055,11 @@ function [EEG, com] = pop_label_datasets(EEG)
 
                         % Apply the label; capture any "remember" conflict choice so it
                         % propagates to subsequent datasets and labels in this run.
-                        [tempEEG, ~, newResolution] = label_datasets_core(tempEEG, label_params{:}, 'labelCount', labelNum, 'showRegionMap', qi == 1, 'eventFormat', selectedEventFormat);
+                        [tempEEG, ~, newResolution] = label_datasets_core(tempEEG, label_params{:}, ...
+                            'conflictResolution', conflictArg, ...
+                            'labelCount', labelNum, ...
+                            'showRegionMap', qi == 1, ...
+                            'eventFormat', selectedEventFormat);
                         if ~isempty(newResolution)
                             saved_conflict_resolution = newResolution;
                         end
@@ -1041,9 +1072,13 @@ function [EEG, com] = pop_label_datasets(EEG)
                             if n > 0, preExpanded(1:n) = preFD(1:n); end
                             isNew = ~cellfun(@isempty, postFD) & ~strcmp(postFD, preExpanded);
                             newlyFD = postFD(isNew);
-                            for ufd = unique(newlyFD)
-                                all_rows{end+1} = sprintf('%s,%s,%d', cleanFileName, ufd{1}, sum(strcmp(newlyFD, ufd{1})));
+                            uniqueNewly = unique(newlyFD);
+                            newRows = cell(1, length(uniqueNewly));
+                            for ui = 1:length(uniqueNewly)
+                                newRows{ui} = sprintf('%s,%s,%d', cleanFileName, uniqueNewly{ui}, sum(strcmp(newlyFD, uniqueNewly{ui})));
                             end
+                            nRowBatches = nRowBatches + 1;
+                            rowBatches{nRowBatches} = newRows;
                         end
                     end
                     tempEEG = eeg_checkset(tempEEG, 'eventconsistency');
@@ -1058,7 +1093,7 @@ function [EEG, com] = pop_label_datasets(EEG)
                     end
 
                     processed_count = processed_count + 1;
-                    fprintf('Processed %d/%d: %s\n', processed_count, length(batchFilePaths), cleanFileName);
+                    fprintf('Processed %d/%d: %s\n', processed_count, nBatchFiles, cleanFileName);
 
                 catch ME
                     warning('Failed to process dataset %s: %s', batchFilePaths{i}, ME.message);
@@ -1071,6 +1106,9 @@ function [EEG, com] = pop_label_datasets(EEG)
         delete(h);
 
         current_batch_label_count = current_batch_label_count + nLabels;
+
+        % Flatten preallocated row batches once after all datasets are processed
+        all_rows = [rowBatches{1:nRowBatches}];
 
         % Write CSV sorted by dataset name
         if ~isempty(all_rows)

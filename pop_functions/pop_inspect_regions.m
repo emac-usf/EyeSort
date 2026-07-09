@@ -88,7 +88,7 @@ function [EEG, com] = pop_inspect_regions(EEG)
     end
 
     %% Dataset selection (skip if only one)
-    if length(datasetNames) == 1
+    if isscalar(datasetNames)
         selectedIdx = 1;
     else
         [selectedIdx, ok] = listdlg('ListString', datasetNames, ...

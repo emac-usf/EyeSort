@@ -257,9 +257,8 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     opts = detectImportOptions(txtFilePath, 'Delimiter', '\t');
     opts.VariableNamingRule = 'preserve';
     
-    % Display detected columns for debugging
-    fprintf('\nDetected column names in file:\n');
-    disp(opts.VariableNames);
+    % Display detected columns (compact one-line list)
+    fprintf('\nDetected columns (%d): %s\n', numel(opts.VariableNames), strjoin(opts.VariableNames, ', '));
     
     % CRITICAL: Validate and correct region names BEFORE setvaropts
     % This prevents setvaropts from failing with case-mismatched column names
@@ -291,8 +290,6 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     
     % Read the data table
     data = readtable(txtFilePath, opts);
-    fprintf('\nActual table column names after import:\n');
-    disp(data.Properties.VariableNames);
 
     % Check for the condition and item columns, with flexible matching
     [conditionColName, foundCondCol] = findBestColumnMatch(data.Properties.VariableNames, conditionColName);
@@ -300,14 +297,12 @@ function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...
     
     % Display helpful error information if columns are not found
     if ~foundCondCol
-        fprintf('Could not find condition column "%s". Available columns:\n', conditionColName);
-        disp(data.Properties.VariableNames);
-        error('Condition column not found. Please check the column name.');
+        error('Condition column "%s" not found. Available columns: %s', ...
+            conditionColName, strjoin(data.Properties.VariableNames, ', '));
     end
     if ~foundItemCol
-        fprintf('Could not find item column "%s". Available columns:\n', itemColName);
-        disp(data.Properties.VariableNames);
-        error('Item column not found. Please check the column name.');
+        error('Item column "%s" not found. Available columns: %s', ...
+            itemColName, strjoin(data.Properties.VariableNames, ', '));
     end
 
     fprintf('Using condition column: %s\n', conditionColName);

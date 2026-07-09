@@ -252,21 +252,11 @@ function [EEG, com] = pop_load_datasets(EEG)
         datasetDirs = cellfun(@(p) fileparts(p), selected_datasets, 'UniformOutput', false);
         if numel(unique(datasetDirs)) > 1
             errordlg(['All selected datasets must come from the same directory when saving a session script.', ...
-                char(10), 'Use Browse Directory for batch processing, or select files from one folder only.'], ...
+                newline, 'Use Browse Directory for batch processing, or select files from one folder only.'], ...
                 'EyeSort - Mixed Dataset Directories');
             return;
         end
         selectedDatasetDir = datasetDirs{1};
-
-        % Retrieve ALLEEG, CURRENTSET from base if they exist
-        try
-            ALLEEG    = evalin('base', 'ALLEEG'); 
-            CURRENTSET= evalin('base', 'CURRENTSET');
-        catch
-            % If not found, initialize them
-            ALLEEG    = [];
-            CURRENTSET= 0;
-        end
 
         % BATCH MODE: 2+ datasets
         if num_datasets >= 2

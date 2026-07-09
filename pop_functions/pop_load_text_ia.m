@@ -485,14 +485,12 @@ function [EEG, com] = pop_load_text_ia(EEG)
         batch_mode = false;
         batchFilePaths = {};
         batchFilenames = {};
-        outputDir = '';
         
         try
             batch_mode = evalin('base', 'eyesort_batch_mode');
             if batch_mode
                 batchFilePaths = evalin('base', 'eyesort_batch_file_paths');
                 batchFilenames = evalin('base', 'eyesort_batch_filenames');
-                outputDir = evalin('base', 'eyesort_batch_output_dir');
                 fprintf('Batch mode detected: Processing %d datasets\n', length(batchFilePaths));
             end
         catch
