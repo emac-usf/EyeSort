@@ -84,8 +84,9 @@ try
         msgbox(warning_msg, 'Batch Labeling Results', 'warn');
     end
     
-    % Build command string for history
-    com = sprintf('EEG = pop_label_datasets(EEG); %% Batch labeled %d datasets', processed_count);
+    % The pop_label_datasets menu path records current-EEG history; this
+    % helper leaves full file-based replay to the exported session script.
+    com = '';
     
 catch ME
     % Close progress bar if there was an error
@@ -139,23 +140,23 @@ end
 
 % Fixation options
 fixationOptions = [];
-if isfield(config, 'fixFirstInRegion') && config.fixFirstInRegion
+if isfield(config, 'fixSingleFixation') && config.fixSingleFixation
+    fixationOptions(end+1) = 1;
+end
+if isfield(config, 'fixFirstOfMultiple') && config.fixFirstOfMultiple
     fixationOptions(end+1) = 2;
 end
-if isfield(config, 'fixSingleFixation') && config.fixSingleFixation
+if isfield(config, 'fixSecondMultiple') && config.fixSecondMultiple
     fixationOptions(end+1) = 3;
 end
-if isfield(config, 'fixSecondMultiple') && config.fixSecondMultiple
+if isfield(config, 'fixAllSubsequent') && config.fixAllSubsequent
     fixationOptions(end+1) = 4;
 end
-if isfield(config, 'fixAllSubsequent') && config.fixAllSubsequent
+if isfield(config, 'fixLastInRegion') && config.fixLastInRegion
     fixationOptions(end+1) = 5;
 end
-if isfield(config, 'fixLastInRegion') && config.fixLastInRegion
-    fixationOptions(end+1) = 6;
-end
 if isempty(fixationOptions)
-    fixationOptions = 1;
+    fixationOptions = 0;
 end
 label_params{end+1} = 'fixationOptions';
 label_params{end+1} = fixationOptions;

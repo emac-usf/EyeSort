@@ -1,55 +1,45 @@
 ## EyeSort
 
-EyeSort is a free, open-source EEGLAB plugin for adding behavior-contingent
-event labels to synchronized EEG and eye-movement datasets from reading studies.
-It is designed for the stage after fixation and saccade events have already
-been synchronized into `EEG.event`, but before ERP averaging, FRP analysis,
-BINLISTER binning, or deconvolution modeling.
+EyeSort toolbox is a free, open-source software for behavior-contingent
+labeling of synchronized EEG and eye-tracking events in reading experiments.
+It is built as an EEGLAB plugin and builds on the
+[EEGLAB Toolbox](https://sccn.ucsd.edu/eeglab/) event and dataset framework.
 
-EyeSort maps fixations to text-defined regions, labels fixation events by
-behavioral context, preserves traceability in the EEGLAB event structure, and
-supports both interactive GUI workflows and reusable MATLAB scripts.
+EyeSort operates between synchronization and analysis: once fixation and
+saccade events are already in `EEG.event`, it maps those events onto
+text-defined interest areas, applies region and behavior-based labels, and
+writes traceable event markers that can feed ERPLAB/BINLISTER workflows, FRP
+analyses, or deconvolution models.
 
-If you are new to EyeSort, we strongly recommend reading the user manual before
-using the plugin on your own data. The README is intentionally brief; the manual
-contains the full tutorials, screenshots, quality-control guidance, and
-troubleshooting details.
-
-## EyeSort v1.0
-
-This release provides the current EEGLAB menu workflow:
-
-- Load one or more synchronized EEGLAB `.set` datasets.
-- Map text-based interest areas to fixation and saccade events.
-- Inspect parsed regions before labeling.
-- Optionally import additional interest-area file columns into `EEG.event`.
-- Queue and apply behavior-contingent fixation labels.
-- Generate BINLISTER-compatible BDF files for ERPLAB.
-- Modify labeled event marker formats while preserving canonical EyeSort codes.
-- Export MATLAB history scripts for GUI-free reruns.
+We **highly** recommend all new users to read through the user manual to
+understand both toolbox functionality and workflow. The README is a short
+overview only; the manual covers installation, input preparation, GUI steps,
+scripting, quality control, and troubleshooting.
 
 ## Documentation And Downloads
 
 - [Latest releases](../../releases)
 - [User Manual (PDF)](https://github.com/emac-usf/EyeSort/releases/latest/download/EyeSort_Manual.pdf)
-- [Sample datasets and interest-area file](https://github.com/emac-usf/EyeSort/releases/latest/download/EyeSort_compatible_files.zip)
+- [Compatible sample datasets + IA file](https://github.com/emac-usf/EyeSort/releases/latest/download/EyeSort_Compatible_Files.zip)
 
-The user manual is the authoritative guide for installation, input preparation,
-step-by-step GUI use, scripted reproducibility, quality control, and
-troubleshooting.
+Source code for the plugin is attached automatically by GitHub. Install by
+placing the `EyeSort` folder in your EEGLAB `plugins` directory, then launch
+EEGLAB and confirm the **EyeSort** menu is present.
+
+**Before using your own data:** work through the manual and sample files first.
 
 ## Scope
 
-EyeSort does not perform raw EEG preprocessing, eye-tracker preprocessing,
-artifact correction, or EEG/eye-tracking synchronization. It assumes those
-upstream steps have already produced fixation and saccade events in `EEG.event`.
+EyeSort does not preprocess EEG, clean eye-tracker data, correct artifacts, or
+synchronize modalities. Those steps must be finished upstream. It assumes
+fixation and saccade events are already present in `EEG.event`.
 
 EyeSort outputs can be used in downstream analyses including ERPLAB/BINLISTER
 ERP workflows and model-based approaches such as deconvolution.
 
 ## Requirements
 
-- MATLAB with EEGLAB installed and working.
+- MATLAB with [EEGLAB](https://sccn.ucsd.edu/eeglab/) installed and working.
 - EyeSort copied into the EEGLAB `plugins` directory.
 - EEGLAB `.set` datasets with synchronized fixation and saccade events in
   `EEG.event`.
@@ -79,7 +69,7 @@ The EyeSort menu is organized as a guided sequence:
 
 1. `EyeSort > 1. Load EEG Dataset(s)`
 2. `EyeSort > 2a. Setup Interest Areas > Text-Based Sentence Contents and Interest Areas`
-3. `EyeSort > 2b. Setup Interest Areas > Inspect Parsed Regions`
+3. `EyeSort > 2b. Setup Interest Areas > Inspect Parsed Regions` (optional)
 4. `EyeSort > 3. Import IA Columns to Events` (optional)
 5. `EyeSort > 4. Eye-Tracking Event Labeling`
 6. `EyeSort > Generate BINLISTER BDF File` (optional)
@@ -88,6 +78,9 @@ The EyeSort menu is organized as a guided sequence:
 
 For scripted reruns without the GUI, export a processing script from the
 `History Scripts` menu after completing a representative EyeSort workflow.
+Single-dataset and batch steps also record evaluable `pop_*` commands for the
+current dataset in EEGLAB history (`eegh` and `EEG.history`). Use the exported
+processing script to replay an entire multi-file batch.
 
 ## Outputs
 
@@ -109,7 +102,7 @@ fields such as pass number, previous region, and next region.
 
 - Use `EyeSort > Help` for an in-EEGLAB workflow summary.
 - Use the user manual for tutorials and detailed troubleshooting.
-- Open an issue on the repository to report bugs.
+- Open an [issue](https://github.com/emac-usf/EyeSort/issues) on the repository to report bugs.
 
 Contact:
 

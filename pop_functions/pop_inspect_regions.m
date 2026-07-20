@@ -6,7 +6,7 @@
 % Author: Brandon Snyder
 
 function [EEG, com] = pop_inspect_regions(EEG)
-    %% POP_INSPECT_REGIONS - GUI for validating parsed sentence regions
+    % POP_INSPECT_REGIONS - GUI for validating parsed sentence regions
     %
     % Displays a scrollable table showing how each trial's sentence was parsed
     % into regions by Step 2 (Setup Interest Areas). Allows the user to verify
@@ -197,7 +197,7 @@ function [EEG, com] = pop_inspect_regions(EEG)
         'Units', 'normalized', 'Position', [0.85 0.01 0.13 0.05], ...
         'Callback', @(~,~) close(fig));
 
-    com = 'pop_inspect_regions();';
+    com = '';
 end
 
 function exportTable(tableData, colNames)

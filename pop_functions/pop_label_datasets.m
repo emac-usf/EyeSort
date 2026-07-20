@@ -5,11 +5,12 @@
 
 % Author: Brandon Snyder
 
-function [EEG, com] = pop_label_datasets(EEG)
+function [EEG, com] = pop_label_datasets(EEG, labelConfig, varargin)
 % POP_LABEL_DATASETS - Label EyeSort-processed fixation and saccade events.
 %
 % Usage:
 %   >> [EEG, com] = pop_label_datasets(EEG);
+%   >> [EEG, com] = pop_label_datasets(EEG, labelConfigOrQueue);
 %
 % Inputs:
 %   EEG - EEGLAB EEG structure previously processed by pop_load_text_ia.
@@ -28,6 +29,50 @@ function [EEG, com] = pop_label_datasets(EEG)
 
     % Initialize output
     com = '';
+
+    % Command-line mode: apply a saved config, struct, or queue without a GUI.
+    if nargin >= 2
+        if ischar(labelConfig) || isstring(labelConfig)
+            labelQueue = load_label_config(char(labelConfig));
+        else
+            labelQueue = labelConfig;
+        end
+        if isstruct(labelQueue)
+            labelQueue = {labelQueue};
+        end
+        if ~iscell(labelQueue) || isempty(labelQueue)
+            error('pop_label_datasets:InvalidConfig', ...
+                'labelConfig must be a config struct, queue cell array, or saved config path.');
+        end
+
+        p = inputParser;
+        addParameter(p, 'conflictResolution', 'ask', @ischar);
+        addParameter(p, 'showRegionMap', false, @(x) islogical(x) || ...
+            (isnumeric(x) && isscalar(x) && any(x == [0 1])));
+        parse(p, varargin{:});
+        conflictResolution = p.Results.conflictResolution;
+        showRegionMap = logical(p.Results.showRegionMap);
+
+        startLabelCount = 0;
+        if isfield(EEG, 'eyesort_label_count') && ~isempty(EEG.eyesort_label_count)
+            startLabelCount = EEG.eyesort_label_count;
+        end
+
+        historyCommands = cell(1, numel(labelQueue));
+        for labelIdx = 1:numel(labelQueue)
+            labelParams = convert_config_to_params(labelQueue{labelIdx});
+            [EEG, historyCommands{labelIdx}, chosen] = label_datasets_core(EEG, ...
+                labelParams{:}, ...
+                'labelCount', startLabelCount + labelIdx, ...
+                'conflictResolution', conflictResolution, ...
+                'showRegionMap', showRegionMap && labelIdx == 1);
+            if ~isempty(chosen)
+                conflictResolution = chosen;
+            end
+        end
+        com = strjoin(historyCommands(~cellfun(@isempty, historyCommands)), newline);
+        return;
+    end
     
     % Queue state: labels are collected here before being applied all at once
     pending_labels = {};           % cell array of config structs
@@ -819,7 +864,11 @@ function [EEG, com] = pop_label_datasets(EEG)
                     'labelCount', currentLabelNum, ...
                     'showRegionMap', qi == 1, ...
                     'eventFormat', selectedEventFormat);
-                com = label_com;
+                if isempty(com)
+                    com = label_com;
+                elseif ~isempty(label_com)
+                    com = sprintf('%s\n%s', com, label_com);
+                end
                 if ~isempty(chosen)
                     saved_conflict_resolution = chosen;
                 end
@@ -1126,11 +1175,15 @@ function [EEG, com] = pop_label_datasets(EEG)
         append_eyesort_grand_totals(session_summary_file);
 
         % Auto-save the queue for next session
+        queuePath = fullfile(fileparts(fileparts(mfilename('fullpath'))), ...
+            'cache', 'last_label_queue.mat');
+        queueSaved = false;
         try
             save_label_config(pending_labels, 'last_label_queue.mat');
             update_eyesort_session_state('labelQueueConfigPath', ...
-                fullfile(fileparts(fileparts(mfilename('fullpath'))), 'cache', 'last_label_queue.mat'), ...
+                queuePath, ...
                 'conflictResolution', saved_conflict_resolution);
+            queueSaved = true;
         catch
             fprintf('Note: Could not auto-save label queue.\n');
         end
@@ -1155,7 +1208,18 @@ function [EEG, com] = pop_label_datasets(EEG)
             end
         end
 
-        com = sprintf('EEG = pop_label_datasets(EEG); %% Batch labeling completed with %d labels applied', current_batch_label_count);
+        if processed_count > 0 && queueSaved
+            historyConflictResolution = saved_conflict_resolution;
+            if isempty(historyConflictResolution)
+                historyConflictResolution = 'ask';
+            end
+            com = sprintf('EEG = pop_label_datasets(EEG, %s);', ...
+                vararg2str({queuePath, ...
+                'conflictResolution', historyConflictResolution, ...
+                'showRegionMap', false}));
+        else
+            com = '';
+        end
 
         total_events_msg = sprintf(['Batch labeling complete!\n\n%d dataset(s) processed with %d label(s) applied.\n\n' ...
             'All datasets are ready for BDF generation.'], length(batchFilePaths), current_batch_label_count);

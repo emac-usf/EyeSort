@@ -5,7 +5,7 @@
 
 % Author: Brandon Snyder
 
-function [EEG, com] = pop_convert_event_codes(EEG)
+function [EEG, com] = pop_convert_event_codes(EEG, eventFormat)
 % POP_CONVERT_EVENT_CODES - GUI for converting EEG.event.type format
 %
 % Allows the user to switch between different event marker formats for
@@ -19,6 +19,7 @@ function [EEG, com] = pop_convert_event_codes(EEG)
 %
 % Usage:
 %   >> [EEG, com] = pop_convert_event_codes(EEG);
+%   >> [EEG, com] = pop_convert_event_codes(EEG, eventFormat);
 %
 % Inputs:
 %   EEG - EEGLAB EEG structure with EyeSort-labeled events. If omitted,
@@ -31,6 +32,14 @@ function [EEG, com] = pop_convert_event_codes(EEG)
 % See also: convert_event_codes, pop_label_datasets
 
 com = '';
+
+% Command-line mode: enough arguments were supplied, so bypass the GUI.
+if nargin >= 2
+    EEG = convert_event_codes(EEG, eventFormat);
+    com = sprintf('EEG = pop_convert_event_codes(EEG, %s);', ...
+        vararg2str({eventFormat}));
+    return;
+end
 
 % Menu callbacks invoke this function with no arguments, so EEG is never
 % created until it is explicitly assigned below. Initialize it here so
@@ -241,8 +250,12 @@ uiwait(hDlg);
 
         if batchMode
             stats = apply_batch(batchFiles, selectedFormat);
-            com = sprintf('%% pop_convert_event_codes batch: %d file(s) in %s -> %s format', ...
-                length(batchFiles), batchDir, selectedFormat);
+            if stats.converted > 0
+                com = sprintf('EEG = pop_convert_event_codes(EEG, %s);', ...
+                    vararg2str({selectedFormat}));
+            else
+                com = '';
+            end
 
             % Reload a converted dataset into the workspace so downstream
             % EEGLAB/EyeSort steps have a valid, up-to-date EEG to work with.
@@ -265,7 +278,8 @@ uiwait(hDlg);
         else
             EEG = convert_event_codes(EEG, selectedFormat);
             EEG = eeg_checkset(EEG, 'eventconsistency');
-            com = sprintf('EEG = convert_event_codes(EEG, ''%s'');', selectedFormat);
+            com = sprintf('EEG = pop_convert_event_codes(EEG, %s);', ...
+                vararg2str({selectedFormat}));
             assignin('base', 'EEG', EEG);
             msgbox(sprintf('Event codes converted to ''%s'' format.', selectedFormat), ...
                 'Conversion Complete', 'help');

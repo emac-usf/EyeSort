@@ -161,6 +161,7 @@ function EEG = import_ia_columns(EEG, txtFilePath, condColName, itemColName, sel
     diagnostics = import_column_diagnostics(importDiagnostics, condColName, itemColName);
     report_diagnostics(diagnostics, 'EyeSort IA Column Import Diagnostics', reportMode);
 
+    EEG = eeg_checkset(EEG, 'eventconsistency');
     fprintf('Imported %d column(s) into %d event(s).\n', length(selectedColumns), assignedEvents);
 end
 

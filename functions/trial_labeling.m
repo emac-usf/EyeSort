@@ -8,6 +8,26 @@
 function EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, itemTriggers, ...
                             fixationType, fixationXField, saccadeType, saccadeStartXField, saccadeEndXField, ...
                             sentenceStartCode, sentenceEndCode)
+% TRIAL_LABELING - Add reading-trial and fixation metadata to EEG events.
+%
+% Usage:
+%   EEG = trial_labeling(EEG, startCode, endCode, conditionTriggers, ...
+%       itemTriggers, fixationType, fixationXField, saccadeType, ...
+%       saccadeStartXField, saccadeEndXField, sentenceStartCode, sentenceEndCode)
+%
+% Inputs:
+%   EEG               - EEGLAB dataset with synchronized eye events
+%   startCode/endCode - Trial boundary event codes
+%   conditionTriggers - Condition event codes
+%   itemTriggers      - Item event codes
+%   fixationType      - Fixation event type
+%   fixationXField    - Fixation X-position field
+%   saccadeType       - Saccade event type
+%   saccadeStartXField/saccadeEndXField - Saccade X-position fields
+%   sentenceStartCode/sentenceEndCode   - Optional sentence boundary codes
+%
+% Output:
+%   EEG - Dataset with EyeSort trial, region, pass, and fixation metadata
     
     % Verify inputs
     if nargin < 12

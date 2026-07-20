@@ -5,7 +5,7 @@
 
 % Author: Brandon Snyder
 
-function generate_bdf_file(varargin)
+function [outputFile, source] = generate_bdf_file(varargin)
 % GENERATE_BDF_FILE - Creates a BINLISTER Bin Descriptor File from EyeSort labeled datasets
 %
 % Usage:
@@ -20,6 +20,10 @@ function generate_bdf_file(varargin)
 %   ALLEEG     - EEGLAB ALLEEG structure containing labeled datasets (optional)
 %   outputFile - Full path to output BDF file (optional)
 %
+% Outputs:
+%   outputFile - Full path written, or '' if the user cancelled
+%   source     - EEG input or directory used to generate the file
+%
 % This function analyzes the 6-digit label codes in labeled datasets and
 % automatically generates a BINLISTER compatible bin descriptor file (BDF).
 % The 6-digit codes follow this pattern:
@@ -29,13 +33,17 @@ function generate_bdf_file(varargin)
 %
 % See also: pop_label_datasets
 
+    outputFile = '';
+    source = []; %#ok<NASGU>
+
     % Non-interactive directory mode for generated EyeSort scripts.
     if nargin >= 1 && (ischar(varargin{1}) || isstring(varargin{1})) && exist(char(varargin{1}), 'dir')
         outputDir = char(varargin{1});
+        source = outputDir;
         if nargin >= 2
-            process_from_directory(outputDir, varargin{2});
+            outputFile = process_from_directory(outputDir, varargin{2});
         else
-            process_from_directory(outputDir);
+            outputFile = process_from_directory(outputDir);
         end
         return;
     end
@@ -62,7 +70,8 @@ function generate_bdf_file(varargin)
         % If we have an output directory and it exists, use it
         if ~isempty(outputDir) && exist(outputDir, 'dir')
             fprintf('Using previously selected output directory for BDF generation.\n');
-            process_from_directory(outputDir, varargin{:});
+            source = outputDir;
+            outputFile = process_from_directory(outputDir, varargin{:});
             return;
         end
         
@@ -74,11 +83,13 @@ function generate_bdf_file(varargin)
             error('BDF generation cancelled by user');
         end
         
-        process_from_directory(selectedDir, varargin{:});
+        source = selectedDir;
+        outputFile = process_from_directory(selectedDir, varargin{:});
         return;
     else
         % Use the provided input
         EEG = varargin{1};
+        source = EEG;
     end
     
     % Check if output file path was provided
@@ -302,8 +313,9 @@ function write_bdf_file(codeMap, outputFile)
     fprintf('Created %d bins in the BDF file.\n', length(binFields));
 end
 
-function process_from_directory(directory, varargin)
+function outputFile = process_from_directory(directory, varargin)
     % Memory-efficient: process datasets from files one-at-a-time
+    outputFile = '';
     fprintf('Processing datasets from directory (memory-efficient mode)...\n');
     fprintf('Looking in: %s\n', directory);
     

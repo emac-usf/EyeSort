@@ -122,6 +122,7 @@ if convertedCount == 0
     error('convert_event_codes:NoLabeledEvents', ...
         'The dataset has eyesort_full_code but no labeled events with usable codes. Re-run labeling or check zero-match diagnostics.');
 end
+EEG = eeg_checkset(EEG, 'eventconsistency');
 fprintf('Converted %d event(s) to ''%s'' format.\n', convertedCount, eventFormat);
 
 end
