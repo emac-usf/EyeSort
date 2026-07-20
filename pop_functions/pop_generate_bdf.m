@@ -5,14 +5,17 @@
 
 % Author: Brandon Snyder
 
-function [EEG, com] = pop_generate_bdf(EEG)
+function [EEG, com] = pop_generate_bdf(EEG, source, outputFile)
 % POP_GENERATE_BDF - GUI wrapper for generate_bdf_file function
 %
 % Usage:
 %   >> [EEG, com] = pop_generate_bdf(EEG);
+%   >> [EEG, com] = pop_generate_bdf(EEG, source, outputFile);
 %
 % Inputs:
 %   EEG   - EEGLAB EEG structure (optional, not used for memory-efficient processing)
+%   source - EEG structure/array or directory containing labeled datasets
+%   outputFile - Full path for the generated BDF text file
 %
 % Outputs:
 %   EEG   - Same as input EEG (unchanged)
@@ -26,6 +29,21 @@ function [EEG, com] = pop_generate_bdf(EEG)
 
     % Initialize output
     com = '';
+
+    % Command-line mode: enough arguments were supplied, so bypass the GUI.
+    if nargin >= 3
+        generate_bdf_file(source, outputFile);
+        if ischar(source) || isstring(source)
+            com = sprintf('[EEG, ~] = pop_generate_bdf(EEG, %s);', ...
+                vararg2str({char(source), outputFile}));
+        elseif isequaln(source, EEG)
+            com = sprintf('[EEG, ~] = pop_generate_bdf(EEG, EEG, %s);', ...
+                vararg2str({outputFile}));
+        else
+            com = '';
+        end
+        return;
+    end
     
     % Get EEG from workspace if not provided (for EEGLAB compatibility)
     if nargin < 1 || isempty(EEG)
@@ -99,11 +117,20 @@ function [EEG, com] = pop_generate_bdf(EEG)
             % Generate BDF file - let it auto-detect datasets from workspace
             % This allows it to find ALLEEG if available, or fall back to EEG
             % The function will handle its own file dialog
-            generate_bdf_file();
+            [outputFile, actualSource] = generate_bdf_file();
+            if isempty(outputFile)
+                return;
+            end
             update_eyesort_session_state('generateBDF', true);
             
             % Create command string for history
-            com = sprintf('EEG = pop_generate_bdf(EEG);');
+            if ischar(actualSource) || isstring(actualSource)
+                com = sprintf('generate_bdf_file(%s);', ...
+                    vararg2str({char(actualSource), outputFile}));
+            else
+                com = sprintf('generate_bdf_file(EEG, %s);', ...
+                    vararg2str({outputFile}));
+            end
             
             % Show success message
             msgbox('BDF file created successfully!', 'Success');

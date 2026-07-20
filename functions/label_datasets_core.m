@@ -11,7 +11,6 @@ function [labeledEEG, com, chosenConflictResolution] = label_datasets_core(EEG, 
 % Usage:
 %   Method 1 - Using config file:
 %   [labeledEEG, com] = label_datasets_core(EEG, configFilePath)
-%   [labeledEEG, com] = label_datasets_core(EEG, 'config_file', configFilePath)
 %
 %   Method 2 - Using individual parameters:
 %   [labeledEEG, com] = label_datasets_core(EEG, 'param', value, ...)
@@ -20,14 +19,15 @@ function [labeledEEG, com, chosenConflictResolution] = label_datasets_core(EEG, 
 %   EEG - EEGLAB dataset structure
 %
 % For config file method:
-%   configFilePath - Path to .m config file containing label parameters
+%   configFilePath - Path to .m or .mat file containing label parameters
 %
 % For individual parameters method (name-value pairs):
 %   'timeLockedRegions'    - Cell array of region names to label on
 %   'passOptions'          - Array of pass type options (1=any, 2=first, 3=second, 4=third+)
 %   'prevRegions'          - Cell array of previous region names
 %   'nextRegions'          - Cell array of next region names  
-%   'fixationOptions'      - Array of fixation type options (1=any, 2=first, 3=single, 4=second, 5=subsequent, 6=last)
+%   'fixationOptions'      - Array of fixation type options (0=any, 1=single,
+%                            2=first of multiple, 3=second, 4=subsequent, 5=last)
 %   'saccadeInOptions'     - Array of saccade in direction options (1=any, 2=forward, 3=backward)
 %   'saccadeOutOptions'    - Array of saccade out direction options (1=any, 2=forward, 3=backward)
 %   'conditions'           - Array of condition numbers to include
@@ -83,16 +83,19 @@ if ~isempty(varargin) && ischar(varargin{1}) && (endsWith(varargin{1}, '.m') || 
         nextRegions = get_config_value(config, 'selectedNextRegions', {});
     end
     
-    fixationOptions = get_config_value(config, 'fixationOptions', 1);
-    % Map GUI fixation fields to fixationOptions array  
-    if isempty(fixationOptions) || fixationOptions == 1
+    if isfield(config, 'fixationOptions')
+        fixationOptions = config.fixationOptions;
+    else
         fixArray = [];
-        if get_config_value(config, 'fixFirstInRegion', 0), fixArray(end+1) = 2; end
-        if get_config_value(config, 'fixSingleFixation', 0), fixArray(end+1) = 3; end
-        if get_config_value(config, 'fixSecondMulti', 0), fixArray(end+1) = 4; end
-        if get_config_value(config, 'fixAllSubsequent', 0), fixArray(end+1) = 5; end
-        if get_config_value(config, 'fixLastInRegion', 0), fixArray(end+1) = 6; end
-        if ~isempty(fixArray), fixationOptions = fixArray; end
+        if get_config_value(config, 'fixSingleFixation', 0), fixArray(end+1) = 1; end
+        if get_config_value(config, 'fixFirstOfMultiple', 0), fixArray(end+1) = 2; end
+        if get_config_value(config, 'fixSecondMultiple', 0), fixArray(end+1) = 3; end
+        if get_config_value(config, 'fixAllSubsequent', 0), fixArray(end+1) = 4; end
+        if get_config_value(config, 'fixLastInRegion', 0), fixArray(end+1) = 5; end
+        fixationOptions = fixArray;
+    end
+    if isempty(fixationOptions)
+        fixationOptions = 0;
     end
     
     saccadeInOptions = get_config_value(config, 'saccadeInOptions', 1);
@@ -129,7 +132,7 @@ else
     addParameter(p, 'passOptions', 1, @isnumeric);
     addParameter(p, 'prevRegions', {}, @iscell);
     addParameter(p, 'nextRegions', {}, @iscell);
-    addParameter(p, 'fixationOptions', 1, @isnumeric);
+    addParameter(p, 'fixationOptions', 0, @isnumeric);
     addParameter(p, 'saccadeInOptions', 1, @isnumeric);
     addParameter(p, 'saccadeOutOptions', 1, @isnumeric);
     addParameter(p, 'conditions', [], @isnumeric);
@@ -137,7 +140,8 @@ else
     addParameter(p, 'labelCount', [], @isnumeric);
     addParameter(p, 'labelDescription', '', @ischar);
     addParameter(p, 'conflictResolution', 'ask', @ischar);
-    addParameter(p, 'showRegionMap', true, @islogical);
+    addParameter(p, 'showRegionMap', true, @(x) islogical(x) || ...
+        (isnumeric(x) && isscalar(x) && any(x == [0 1])));
     addParameter(p, 'eventFormat', 'numeric', @ischar);
     
     parse(p, EEG, varargin{:});
@@ -158,6 +162,7 @@ else
     showRegionMap = p.Results.showRegionMap;
     eventFormat = p.Results.eventFormat;
 end
+showRegionMap = logical(showRegionMap);
 
 % Validate input EEG structure
 if isempty(EEG)
@@ -224,7 +229,7 @@ end
 
 % Apply the labeling
 try
-    [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, conditions, items, timeLockedRegions, ...
+    [labeledEEG, chosenConflictResolution, historyConflictResolution] = label_dataset_internal(EEG, conditions, items, timeLockedRegions, ...
                                             passOptions, prevRegions, nextRegions, ...
                                             fixationOptions, saccadeInOptions, saccadeOutOptions, labelCount, ...
                                             fixationType, fixationXField, saccadeType, ...
@@ -254,15 +259,26 @@ try
     labelDesc.timestamp = char(datetime('now', 'Format', 'yyyy-MM-dd HH:mm:ss'));
     
     labeledEEG.eyesort_label_descriptions{end+1} = labelDesc;
-    
-    % Generate command string (timeLockedRegions is always a cell by this point)
-    if isscalar(timeLockedRegions)
-        regionStr = sprintf('{''%s''}', timeLockedRegions{1});
-    else
-        regionStr = sprintf('{''%s''}', strjoin(timeLockedRegions, ''', '''));
-    end
-    com = sprintf('EEG = label_datasets_core(EEG, ''timeLockedRegions'', %s, ''labelCount'', %d);', ...
-                regionStr, labelCount);
+
+    labeledEEG = eeg_checkset(labeledEEG, 'eventconsistency');
+
+    % Generate a complete, evaluable command for EEGLAB history.
+    historyArgs = { ...
+        'timeLockedRegions', timeLockedRegions, ...
+        'passOptions', passOptions, ...
+        'prevRegions', prevRegions, ...
+        'nextRegions', nextRegions, ...
+        'fixationOptions', fixationOptions, ...
+        'saccadeInOptions', saccadeInOptions, ...
+        'saccadeOutOptions', saccadeOutOptions, ...
+        'conditions', conditions, ...
+        'items', items, ...
+        'labelCount', labelCount, ...
+        'labelDescription', labelDescription, ...
+        'conflictResolution', historyConflictResolution, ...
+        'showRegionMap', false, ...
+        'eventFormat', eventFormat};
+    com = sprintf('EEG = label_datasets_core(EEG, %s);', vararg2str(historyArgs));
     
 catch ME
     % Provide more detailed error information
@@ -275,7 +291,7 @@ end
 
 end
 
-function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, conditions, items, timeLockedRegions, ...
+function [labeledEEG, chosenConflictResolution, historyConflictResolution] = label_dataset_internal(EEG, conditions, items, timeLockedRegions, ...
                                                 passOptions, prevRegions, nextRegions, ...
                                                 fixationOptions, saccadeInOptions, ...
                                                 saccadeOutOptions, labelCount, ...
@@ -295,6 +311,7 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
     if nargin < 19 || isempty(conflictResolution)
         conflictResolution = 'ask';
     end
+    historyConflictResolution = conflictResolution;
     
     % Create a copy of the EEG structure
     labeledEEG = EEG;
@@ -1058,6 +1075,7 @@ function [labeledEEG, chosenConflictResolution] = label_dataset_internal(EEG, co
                 [~, datasetName] = fileparts(EEG.filename);
             end
             [choice, rememberAll] = show_conflict_dialog(conflictingEvents, datasetName);
+            historyConflictResolution = lower(choice);
             if rememberAll
                 chosenConflictResolution = lower(choice);
             end

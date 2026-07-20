@@ -82,7 +82,9 @@ function scriptPath = save_eyesort_session_script(varargin)
     fprintf(fid, '%% Re-runs the EyeSort pipeline without opening EyeSort GUIs.\n\n');
     fprintf(fid, 'clear EEG;\n\n');
     fprintf(fid, 'pluginDir = %s;\n', matlab_literal(plugin_root()));
-    fprintf(fid, 'addpath(genpath(pluginDir));\n\n');
+    fprintf(fid, 'addpath(pluginDir);\n');
+    fprintf(fid, 'addpath(fullfile(pluginDir, ''pop_functions''));\n');
+    fprintf(fid, 'addpath(fullfile(pluginDir, ''functions''));\n\n');
     fprintf(fid, 'inputDir = %s; %% edit this path to process a different batch\n', matlab_literal(inputDir));
     fprintf(fid, 'datasetFiles = dir(fullfile(inputDir, ''*.set''));\n');
     fprintf(fid, 'inputFiles = arrayfun(@(f) fullfile(f.folder, f.name), datasetFiles, ''UniformOutput'', false);\n');

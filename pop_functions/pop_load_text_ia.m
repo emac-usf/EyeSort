@@ -5,11 +5,17 @@
 
 % Author: Brandon Snyder
 
-function [EEG, com] = pop_load_text_ia(EEG)
+function [EEG, com] = pop_load_text_ia(EEG, varargin)
 % POP_LOAD_TEXT_IA - Configure text-based interest areas for EyeSort.
 %
 % Usage:
 %   >> [EEG, com] = pop_load_text_ia(EEG);
+%   >> [EEG, com] = pop_load_text_ia(EEG, txtFilePath, offset, ...
+%          pxPerChar, numRegions, regionNames, conditionColName, ...
+%          itemColName, startCode, endCode, conditionTriggers, ...
+%          itemTriggers, fixationType, fixationXField, saccadeType, ...
+%          saccadeStartXField, saccadeEndXField, sentenceStartCode, ...
+%          sentenceEndCode, conditionTypeColNames, ...)
 %
 % Inputs:
 %   EEG - EEGLAB EEG structure. If omitted, EyeSort uses the base workspace
@@ -35,6 +41,13 @@ function [EEG, com] = pop_load_text_ia(EEG)
         EEG = eeg_emptyset;
     end
     
+    % Command-line mode: forward supplied processing arguments to the core.
+    if ~isempty(varargin)
+        EEG = compute_text_based_ia(EEG, varargin{:});
+        com = sprintf('EEG = pop_load_text_ia(EEG, %s);', vararg2str(varargin));
+        return;
+    end
+
     txtFileList = {};
     
     % Clear any stale intermediate dataset settings from previous sessions
@@ -881,12 +894,15 @@ function [EEG, com] = pop_load_text_ia(EEG)
                 assignin('base', 'eyesort_batch_file_paths', batchFilePaths);
                 
                 % Auto-save current configuration before showing completion message
+                configPath = fullfile(fileparts(fileparts(mfilename('fullpath'))), ...
+                    'cache', 'last_text_ia_config.mat');
+                configSaved = false;
                 try
                     config = collect_gui_settings();
                     if ~isempty(config)
                         save_text_ia_config(config, 'last_text_ia_config.mat');
-                        update_eyesort_session_state('textIAConfigPath', ...
-                            fullfile(fileparts(fileparts(mfilename('fullpath'))), 'cache', 'last_text_ia_config.mat'));
+                        update_eyesort_session_state('textIAConfigPath', configPath);
+                        configSaved = true;
                     end
                 catch
                     % Don't fail the main process if auto-save fails
@@ -915,9 +931,27 @@ function [EEG, com] = pop_load_text_ia(EEG)
                 h_msg = msgbox(sprintf('Text IA processing complete!\n\nProcessed: %d datasets\nFailed: %d datasets\n\nNow proceed to step 3 (Eye-Tracking Event Labeling) to apply labels.%s', processed_count, failed_count, batchNote), 'Batch Processing Complete');
                 waitfor(h_msg); % Wait for user to close the message box
                 
-                % Update command string for history
-                com = sprintf('EEG = pop_load_text_ia(EEG); %% Batch Text IA processing completed for %d datasets', processed_count);
-                record_eyesort_history(com);
+                % Update command string for history. This GUI is not uiwait-
+                % blocked, so try_callback has already returned; record here
+                % the same way the single-dataset path does.
+                if processed_count > 0 && configSaved && exist(configPath, 'file')
+                    com = sprintf('EEG = pop_load_text_ia(EEG, %s);', ...
+                        vararg2str({configPath, 'reportMode', 'none'}));
+                elseif processed_count > 0
+                    historyArgs = {txtFilePath, offset, pxPerChar, numRegions, regionNames, ...
+                        conditionColName, itemColName, startCodeStr, endCodeStr, ...
+                        condTriggers, itemTriggers, fixationTypeStr, fixationXFieldStr, ...
+                        saccadeTypeStr, saccadeStartXFieldStr, saccadeEndXFieldStr, ...
+                        sentenceStartCodeStr, sentenceEndCodeStr, conditionTypeColNames, ...
+                        'rtl', rtl, 'reportMode', 'none'};
+                    com = sprintf('EEG = pop_load_text_ia(EEG, %s);', ...
+                        vararg2str(historyArgs));
+                else
+                    com = '';
+                end
+                if ~isempty(com)
+                    record_eyesort_history(com, processedEEG);
+                end
                 
                 % Close GUI after batch processing completion
                 close(hFig);
@@ -1006,8 +1040,13 @@ function [EEG, com] = pop_load_text_ia(EEG)
             end
 
             % Update command string for history
-            com = sprintf('EEG = pop_load_text_ia(EEG); %% file=%s offset=%g px=%g',...
-                     txtFilePath, offset, pxPerChar);
+            historyArgs = {txtFilePath, offset, pxPerChar, numRegions, regionNames, ...
+                conditionColName, itemColName, startCodeStr, endCodeStr, ...
+                condTriggers, itemTriggers, fixationTypeStr, fixationXFieldStr, ...
+                saccadeTypeStr, saccadeStartXFieldStr, saccadeEndXFieldStr, ...
+                sentenceStartCodeStr, sentenceEndCodeStr, conditionTypeColNames, ...
+                'rtl', rtl, 'reportMode', 'none'};
+            com = sprintf('EEG = pop_load_text_ia(EEG, %s);', vararg2str(historyArgs));
             record_eyesort_history(com, processedEEG);
 
             % Close GUI

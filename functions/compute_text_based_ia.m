@@ -13,8 +13,7 @@ function EEG = compute_text_based_ia(EEG, varargin)
     %
     % USAGE:
     %   Method 1 - Using config file:
-    %   EEG = compute_text_based_ia(EEG, 'config_file', 'path/to/config.m')
-    %   EEG = compute_text_based_ia(EEG, configFilePath)  % If first arg is .m file
+    %   EEG = compute_text_based_ia(EEG, configFilePath)
     %
     %   Method 2 - Using individual parameters:
     %   EEG = compute_text_based_ia(EEG, txtFilePath, offset, pxPerChar, ...)
@@ -23,7 +22,7 @@ function EEG = compute_text_based_ia(EEG, varargin)
     %   EEG               - EEGLAB EEG structure or array of structures
     %   
     %   For config file method:
-    %   configFilePath    - Path to .m config file containing all parameters
+    %   configFilePath    - Path to .m or .mat config file containing all parameters
     %
     %   For individual parameters method:
     %   txtFilePath       - Path to tab-delimited text file containing reading stimuli
@@ -183,6 +182,7 @@ function EEG = compute_text_based_ia(EEG, varargin)
                                               startCode, endCode, conditionTriggers, itemTriggers, ...
                                               fixationType, fixationXField, saccadeType, saccadeStartXField, saccadeEndXField, ...
                                               sentenceStartCode, sentenceEndCode, conditionTypeColName, rtl, reportMode);
+            currentEEG = eeg_checkset(currentEEG, 'eventconsistency');
             
             % Store back in the array - NO SAVING
             EEG(idx) = currentEEG;
@@ -197,6 +197,7 @@ function EEG = compute_text_based_ia(EEG, varargin)
                                               startCode, endCode, conditionTriggers, itemTriggers, ...
                                               fixationType, fixationXField, saccadeType, saccadeStartXField, saccadeEndXField, ...
                                               sentenceStartCode, sentenceEndCode, conditionTypeColName, rtl, reportMode);
+    EEG = eeg_checkset(EEG, 'eventconsistency');
 end
 
 function EEG = process_single_dataset(EEG, txtFilePath, offset, pxPerChar, ...

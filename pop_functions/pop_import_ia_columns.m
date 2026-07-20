@@ -5,8 +5,8 @@
 
 % Author: Brandon Snyder
 
-function [EEG, com] = pop_import_ia_columns(EEG)
-    %% POP_IMPORT_IA_COLUMNS - GUI for importing interest area text file columns into EEG events
+function [EEG, com] = pop_import_ia_columns(EEG, txtFilePath, condColName, itemColName, selectedColumns, reportMode)
+    % POP_IMPORT_IA_COLUMNS - Import interest-area columns into EEG events.
     %
     % Allows the user to select columns from their interest area text file
     % and import them as new fields into EEG.event. Columns already used by
@@ -22,6 +22,8 @@ function [EEG, com] = pop_import_ia_columns(EEG)
     % USAGE:
     %   [EEG, com] = pop_import_ia_columns()
     %   [EEG, com] = pop_import_ia_columns(EEG)
+    %   [EEG, com] = pop_import_ia_columns(EEG, txtFilePath, ...
+    %       condColName, itemColName, selectedColumns, reportMode)
     %
     % INPUTS:
     %   EEG - (optional) EEGLAB EEG structure
@@ -33,6 +35,18 @@ function [EEG, com] = pop_import_ia_columns(EEG)
     % See also: import_ia_columns, pop_load_text_ia, pop_label_datasets
 
     com = '';
+
+    % Command-line mode: enough arguments were supplied, so bypass the GUI.
+    if nargin >= 5
+        if nargin < 6 || isempty(reportMode)
+            reportMode = 'command';
+        end
+        EEG = import_ia_columns(EEG, txtFilePath, condColName, itemColName, ...
+            selectedColumns, reportMode);
+        com = sprintf('EEG = pop_import_ia_columns(EEG, %s);', ...
+            vararg2str({txtFilePath, condColName, itemColName, selectedColumns, reportMode}));
+        return;
+    end
 
     if nargin < 1
         try
@@ -220,7 +234,6 @@ function [EEG, com] = pop_import_ia_columns(EEG)
         catch
         end
     end
-    com = 'pop_import_ia_columns();';
 
     %% --- Nested callback functions ---
 
@@ -302,12 +315,15 @@ function [EEG, com] = pop_import_ia_columns(EEG)
         bPaths = getappdata(fig, 'batchFilePaths');
         bNames = getappdata(fig, 'batchFilenames');
 
-        close(fig);
+        % Keep uiwait blocked until processing and history generation finish.
 
         if isBatch
             importBatch(importFilePath, cachedCondCol, cachedItemCol, selectedCols, bPaths, bNames);
         else
             importALLEEG(importFilePath, cachedCondCol, cachedItemCol, selectedCols);
+        end
+        if ishandle(fig)
+            close(fig);
         end
     end
 
@@ -327,8 +343,10 @@ function [EEG, com] = pop_import_ia_columns(EEG)
         for i = 1:length(localALLEEG)
             if isfield(localALLEEG(i), 'eyesort_processed') && localALLEEG(i).eyesort_processed
                 try
-                    localALLEEG(i) = import_ia_columns(localALLEEG(i), filePath, condColName, itemColName, selectedCols, 'none');
-                    localALLEEG(i) = eeg_checkset(localALLEEG(i), 'eventconsistency');
+                    updatedEEG = import_ia_columns(localALLEEG(i), filePath, ...
+                        condColName, itemColName, selectedCols, 'none');
+                    updatedEEG = eeg_checkset(updatedEEG, 'eventconsistency');
+                    localALLEEG = replace_alleeg_dataset(localALLEEG, i, updatedEEG);
                     modifiedCount = modifiedCount + 1;
                     if isempty(firstModifiedIdx)
                         firstModifiedIdx = i;
@@ -362,15 +380,19 @@ function [EEG, com] = pop_import_ia_columns(EEG)
             end
         end
 
+        % Set history before the modal dialog closes and uiwait resumes.
+        if modifiedCount > 0
+            com = sprintf('EEG = pop_import_ia_columns(EEG, %s);', ...
+                vararg2str({filePath, condColName, itemColName, selectedCols, 'none'}));
+        else
+            com = '';
+        end
+
         % Update base workspace with the first updated dataset for inspection
         assignin('base', 'ALLEEG', localALLEEG);
         if ~isempty(firstModifiedIdx)
             assignin('base', 'EEG', localALLEEG(firstModifiedIdx));
             assignin('base', 'CURRENTSET', firstModifiedIdx);
-        end
-        try
-            eeglab('redraw');
-        catch
         end
 
         if modifiedCount > 0
@@ -476,6 +498,10 @@ function [EEG, com] = pop_import_ia_columns(EEG)
             update_eyesort_session_state('importFilePath', filePath, ...
                 'importCondColName', condColName, 'importItemColName', itemColName, ...
                 'importColumns', selectedCols);
+            com = sprintf('EEG = pop_import_ia_columns(EEG, %s);', ...
+                vararg2str({filePath, condColName, itemColName, selectedCols, 'none'}));
+        else
+            com = '';
         end
         if successCount == 0
             if ~hasImportErrors
@@ -489,4 +515,23 @@ function [EEG, com] = pop_import_ia_columns(EEG)
                 length(selectedCols), successCount, length(bPaths)), 'EyeSort - Import Complete');
         end
     end
+end
+
+function ALLEEG = replace_alleeg_dataset(ALLEEG, datasetIndex, updatedEEG)
+    % Align top-level fields before replacing one element of a struct array.
+    existingFields = fieldnames(ALLEEG);
+    updatedFields = fieldnames(updatedEEG);
+
+    fieldsToAdd = setdiff(updatedFields, existingFields);
+    for iField = 1:numel(fieldsToAdd)
+        ALLEEG(1).(fieldsToAdd{iField}) = [];
+    end
+
+    fieldsToAdd = setdiff(existingFields, updatedFields);
+    for iField = 1:numel(fieldsToAdd)
+        updatedEEG.(fieldsToAdd{iField}) = [];
+    end
+
+    updatedEEG = orderfields(updatedEEG, ALLEEG(1));
+    ALLEEG(datasetIndex) = updatedEEG;
 end
