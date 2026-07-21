@@ -16,15 +16,18 @@ understand both toolbox functionality and workflow. The README is a short
 overview only; the manual covers installation, input preparation, GUI steps,
 scripting, quality control, and troubleshooting.
 
+## EyeSort 1.0
+
+[Download EyeSort 1.0](https://github.com/emac-usf/EyeSort/releases/latest/download/eyesort1.0.zip)
+
+Download the plugin ZIP above (`eyesort1.0.zip`). It unpacks to an `eyesort1.0` folder.
+Place that folder in your EEGLAB `plugins` directory, launch EEGLAB, and confirm the **EyeSort** menu is present.
+
 ## Documentation And Downloads
 
-- [Latest releases](../../releases)
+- [Latest releases](https://github.com/emac-usf/EyeSort/releases)
 - [User Manual (PDF)](https://github.com/emac-usf/EyeSort/releases/latest/download/EyeSort_Manual.pdf)
 - [Compatible sample datasets + IA file](https://github.com/emac-usf/EyeSort/releases/latest/download/EyeSort_Compatible_Files.zip)
-
-Source code for the plugin is attached automatically by GitHub. Install by
-placing the `EyeSort` folder in your EEGLAB `plugins` directory, then launch
-EEGLAB and confirm the **EyeSort** menu is present.
 
 **Before using your own data:** work through the manual and sample files first.
 
@@ -56,9 +59,10 @@ customizable in the GUI:
 
 ## Installation
 
-1. Copy the `EyeSort` folder into the EEGLAB `plugins` directory.
-2. Start MATLAB and launch EEGLAB with `eeglab`.
-3. Verify that the `EyeSort` menu appears in the EEGLAB toolbar.
+1. [Download `eyesort1.0.zip`](https://github.com/emac-usf/EyeSort/releases/latest/download/eyesort1.0.zip).
+2. Unzip it and copy the `eyesort1.0` folder into the EEGLAB `plugins` directory.
+3. Start MATLAB and launch EEGLAB with `eeglab`.
+4. Verify that the `EyeSort` menu appears in the EEGLAB toolbar.
 
 If MATLAB reports multiple EyeSort folders on the path, remove duplicate copies
 or confirm that the first folder found is the intended version.
